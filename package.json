@@ -1,0 +1,17 @@
+{
+  "name": "hoststray",
+  "version": "1.0.0",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron ."
+  },
+  "build": {
+    "win": {
+      "requestedExecutionLevel": "highestAvailable"
+    }
+  },
+  "devDependencies": {
+    "electron": "^27.0.0"
+  }
+}
