@@ -4,14 +4,25 @@
   "main": "main.js",
   "license": "MIT",
   "scripts": {
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",   
     "start": "electron ."
   },
   "build": {
+    "productName": "Hosts Tray",
+    "appId": "maxmart.hoststray",
     "win": {
-      "requestedExecutionLevel": "highestAvailable"
+      "target": "portable",
+      "artifactName": "ht.exe",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "portable": {
+      "artifactName": "ht.exe",
+      "requestExecutionLevel": "admin"
     }
   },
   "devDependencies": {
-    "electron": "^27.0.0"
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
   }
 }
