@@ -1,6 +1,6 @@
 {
   "name": "hoststray",
-  "version": "1.0.0",
+  "version": "0.9.0",
   "main": "main.js",
   "license": "MIT",
   "scripts": {
@@ -20,6 +20,9 @@
       "artifactName": "ht.exe",
       "requestExecutionLevel": "admin"
     }
+  },
+  "dependencies": {
+    "http-proxy": "*"
   },
   "devDependencies": {
     "electron": "^27.0.0",
