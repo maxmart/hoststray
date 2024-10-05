@@ -1,6 +1,6 @@
 {
   "name": "hoststray",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "main": "main.js",
   "license": "MIT",
   "scripts": {
@@ -13,7 +13,7 @@
     "appId": "maxmart.hoststray",
     "win": {
       "target": "portable",
-      "artifactName": "ht.exe",
+      "artifactName": "hoststray_0.9.1.exe",
       "requestedExecutionLevel": "requireAdministrator"
     },
     "portable": {

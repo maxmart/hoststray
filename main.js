@@ -41,6 +41,21 @@ app.whenReady().then(() => {
         {
             type: 'separator'
         },
+        
+        { 
+            label: "Launch at start up?", 
+            type: 'checkbox', 
+            checked: app.getLoginItemSettings().openAtLogin,
+            click: (mi, window, event)=>{ 
+                app.setLoginItemSettings({openAtLogin: mi.checked});
+                tray.popUpContextMenu(contextMenu, tray.getBounds());
+            }
+        },
+        {
+            type: 'separator'
+        },
+        
+
         {
             type: 'normal',
             label: "open hosts file",
