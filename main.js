@@ -10,7 +10,9 @@ const shell = require('electron').shell;
 
 const startProxy = require('./proxy.js');
 
-const path = "c:\\Windows\\System32\\drivers\\etc\\hosts";
+const winpath = "c:\\Windows\\System32\\drivers\\etc\\hosts";
+const macpath = "/etc/hosts";
+const path = process.platform == "win32" ? winpath : macpath;
 let tray
 
 const GROUP_PREFIX = "#====";

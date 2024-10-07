@@ -119,28 +119,27 @@ module.exports = function() {
                     // Write the self-signed certificate to a file
                     fs.writeFileSync(certPath, forge.pki.certificateToPem(cert));
 
-                    dialog.showMessageBoxSync(null, {
+                    const response = dialog.showMessageBoxSync(null, {
                         type: "info",
                         buttons: ['Cancel', 'Proceed', 'I\'ll do it myself'],
                         defaultId: 1,
                         title: 'Administrator Privileges Required',
                         message: 'To install the CA certificate, we need administrator privileges.',
                         detail: 'This is necessary to add the certificate to your system’s trusted root certificate store, ensuring your connection is secure.',
-                    }).then(({response}) => {
-                        if (response === 1) {
-                            addCAToTrustedRoot(certPath);
-                        } else {
-                            console.log("User declined :(")
-                            dialog.showMessageBox(null, {
-                                type: "info",
-                                title: 'CA Certificate Installation',
-                                message: 'You can manually install the CA certificate',
-                                detail: 'You can manually install the CA certificate by running this command:'
-                                + (process.platform === 'win32' ? '\n\n' + `certutil -addstore Root "${certPath}"` : '\n\n' + `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${certPath}"`)
+                    });
 
-                            });
-                        }
-                    })
+                    if (response === 1) {
+                        addCAToTrustedRoot(certPath);
+                    } else {
+                        console.log("User declined :(")
+                        dialog.showMessageBoxSync(null, {
+                            type: "info",
+                            title: 'CA Certificate Installation',
+                            message: 'You can manually install the CA certificate',
+                            detail: 'You can manually install the CA certificate by running this command:'
+                            + (process.platform === 'win32' ? '\n\n' + `certutil -addstore Root "${certPath}"` : '\n\n' + `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${certPath}"`)
+                        });
+                    }
                 }
             }
         
