@@ -1,3 +1,9 @@
+if (require('electron-squirrel-startup')) return;
+
+const { updateElectronApp } = require('update-electron-app');
+updateElectronApp(); // additional configuration options available
+
+
 const { app, Tray, Menu, nativeImage } = require('electron')
 const fs = require("fs");
 const shell = require('electron').shell;
@@ -24,6 +30,10 @@ app.whenReady().then(() => {
     console.log({groups})
 
     const contextMenu = Menu.buildFromTemplate([
+        {
+            label: "v0.9.6",
+            type: "normal"
+        },
         { 
             label: "Proxy?", 
             type: 'checkbox', 
