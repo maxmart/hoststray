@@ -34,7 +34,15 @@ app.whenReady().then(() => {
     const contextMenu = Menu.buildFromTemplate([
         {
             label: "v0.9.6",
-            type: "normal"
+            type: "normal",
+            enabled: false
+        },
+        {
+            label: "Quit",
+            type: "normal",
+            click: (mi, window, event) => {
+                app.quit();
+            }
         },
         { 
             label: "Proxy?", 

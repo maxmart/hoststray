@@ -12,7 +12,7 @@
   "scripts": {
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "start": "electron-forge start",
+    "start": "electron .",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish"
