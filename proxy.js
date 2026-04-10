@@ -130,8 +130,16 @@ module.exports = function() {
 
                     if (response === 1) {
                         addCAToTrustedRoot(certPath);
-                    } else {
+                    } else if (response === 0) {
                         console.log("User declined :(")
+                        dialog.showMessageBoxSync(null, {
+                            type: "info",
+                            title: 'CA Certificate Installation',
+                            message: 'We respect your decision.',
+                            detail: 'The application may not function correctly without proper certificate installation. Please reconsider when you have time.'
+                        });
+                    } else {
+                        console.log("User will do it manually")
                         dialog.showMessageBoxSync(null, {
                             type: "info",
                             title: 'CA Certificate Installation',
