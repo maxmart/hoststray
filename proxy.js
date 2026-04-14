@@ -188,7 +188,7 @@ module.exports = function() {
             'Content-Type': 'text/plain'
         });
 
-        res.end('Something went wrong.');
+        res.end('Something went wrong.\n\n' + (err && (err.stack || err.message || String(err))));
     });
 
     proxy.on('proxyReq', function (proxyReq, req, res, options) {
