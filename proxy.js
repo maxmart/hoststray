@@ -23,7 +23,7 @@ module.exports = function() {
     var homePath = path.resolve("_certs"),
         
         listenPort = process.env.PORT || 443,
-        forwardHost = process.env.FORWARD_HOST || 'localhost',
+        forwardHost = process.env.FORWARD_HOST || '127.0.0.1',
         forwardPort = process.env.FORWARD_PORT || 80;
 
         function generateCertificate(name, CA) {
@@ -175,6 +175,7 @@ module.exports = function() {
     var proxy = httpProxy.createProxyServer({target: {host: forwardHost, port: forwardPort}});
 
     proxy.on('error', function (err, req, res) {
+        console.error(err);
         res.writeHead && res.writeHead(500, {
             'Content-Type': 'text/plain'
         });

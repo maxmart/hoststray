@@ -33,9 +33,9 @@ app.whenReady().then(() => {
 
     const contextMenu = Menu.buildFromTemplate([
         {
-            label: "v0.9.6",
+            label: "v0.9.7",
             type: "normal",
-            enabled: false
+            enabled: false,
         },
         {
             label: "Quit",
@@ -45,7 +45,19 @@ app.whenReady().then(() => {
             }
         },
         { 
-            label: "Proxy?", 
+            label: "Launch at start up?", 
+            type: 'checkbox', 
+            checked: app.getLoginItemSettings().openAtLogin,
+            click: (mi, window, event)=>{ 
+                app.setLoginItemSettings({openAtLogin: mi.checked});
+                tray.popUpContextMenu(contextMenu, tray.getBounds());
+            }
+        },
+        {
+            type: 'separator'
+        },
+        { 
+            label: "HTTPS Proxy on?", 
             type: 'checkbox', 
             checked: currentServer != null,
             click: (mi, window, event)=>{ 
@@ -55,19 +67,6 @@ app.whenReady().then(() => {
                 } else {
                     currentServer = startProxy();
                 }
-                tray.popUpContextMenu(contextMenu, tray.getBounds());
-            }
-        },
-        {
-            type: 'separator'
-        },
-        
-        { 
-            label: "Launch at start up?", 
-            type: 'checkbox', 
-            checked: app.getLoginItemSettings().openAtLogin,
-            click: (mi, window, event)=>{ 
-                app.setLoginItemSettings({openAtLogin: mi.checked});
                 tray.popUpContextMenu(contextMenu, tray.getBounds());
             }
         },
