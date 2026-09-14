@@ -10,9 +10,12 @@ Windows and macOS. Built with Electron.
 ## Why
 
 Testing cookies, CORS, OAuth callbacks, or service workers usually needs the
-real hostname over HTTPS. Doing that by hand means editing an admin-owned hosts
-file, generating certs, and running a reverse proxy. Hosts Tray wraps all three
-in a tray icon.
+real hostname over HTTPS. SwitchHosts is great but does not have HTTPS proxy builtin. 
+
+Doing that by hand means editing an admin-owned hosts file, generating certs, and running a reverse proxy. 
+Hosts Tray wraps all three in a tray icon.
+
+Also supports websockets.
 
 ## Features
 
@@ -119,17 +122,6 @@ automatically in that mode.
 Releases are built and signed per platform. See [SIGNING.md](SIGNING.md) for
 certificates, notarization, and publishing to GitHub Releases.
 
-## Project layout
-
-| File | Role |
-| --- | --- |
-| `main.js` | Tray menu, IPC handlers, hosts file writes |
-| `hosts-model.js` | Round-trip parser and serializer for the hosts file |
-| `proxy.js` | HTTPS server, certificate generation, request routing |
-| `proxy-config.js` | Parser and serializer for `proxy.conf` |
-| `editor.html`, `proxy-editor.html` | Editor windows |
-| `preload.js` | Context-isolated bridge between windows and main |
-| `forge.config.js` | Electron Forge build, signing, and publishing config |
 
 ## License
 
