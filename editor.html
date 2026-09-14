@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Hosts Tray — Editor</title>
+    <style>
+        :root {
+            --bg: #f5f6f8;
+            --card: #ffffff;
+            --line: #e2e5ea;
+            --text: #1c2128;
+            --muted: #6b7280;
+            --accent: #2f8f4e;
+            --danger: #c23b3b;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; }
+        body {
+            font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+            color: var(--text);
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            position: sticky;
+            top: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: var(--card);
+            border-bottom: 1px solid var(--line);
+            z-index: 5;
+        }
+        header .grow { flex: 1; }
+        #search {
+            flex: 1;
+            max-width: 320px;
+            padding: 6px 10px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        button {
+            font: inherit;
+            padding: 6px 12px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+        }
+        button:hover { background: #f0f1f3; }
+        button:disabled { opacity: .5; cursor: default; }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        button.primary:hover:not(:disabled) { filter: brightness(1.05); }
+        .icon-btn {
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            padding: 2px 6px;
+            font-size: 15px;
+            line-height: 1;
+            border-radius: 4px;
+        }
+        .icon-btn:hover { background: #eee; color: var(--text); }
+        .icon-btn.danger:hover { background: #fce8e8; color: var(--danger); }
+        main { flex: 1; overflow: auto; padding: 14px; }
+        .group {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .group.disabled .ghead .name { color: var(--muted); }
+        .ghead {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #fafbfc;
+            border-bottom: 1px solid var(--line);
+        }
+        .ghead .name {
+            font-weight: 600;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            padding: 3px 6px;
+            min-width: 80px;
+            background: transparent;
+            font-size: 13px;
+            color: var(--text);
+        }
+        .ghead .name:hover { border-color: var(--line); }
+        .ghead .name:focus { border-color: var(--accent); outline: none; background: #fff; }
+        .ghead .count { color: var(--muted); font-size: 12px; }
+        .caret {
+            cursor: pointer;
+            color: var(--muted);
+            width: 16px;
+            text-align: center;
+            user-select: none;
+            transition: transform .12s;
+        }
+        .group.collapsed .caret { transform: rotate(-90deg); }
+        .group.collapsed .gbody { display: none; }
+        .rows { padding: 4px 10px 8px; }
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 0;
+        }
+        .row.off .host { color: var(--muted); text-decoration: line-through; }
+        .host {
+            flex: 1;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            padding: 4px 6px;
+            font-size: 13px;
+            font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+            background: transparent;
+        }
+        .host:hover { border-color: var(--line); }
+        .host:focus { border-color: var(--accent); outline: none; background: #fff; }
+        .ipbadge {
+            font-size: 11px;
+            font-family: ui-monospace, Consolas, monospace;
+            color: #8a5a00;
+            background: #fff3da;
+            border: 1px solid #f0dca8;
+            border-radius: 4px;
+            padding: 1px 5px;
+            white-space: nowrap;
+        }
+        .addhost { margin: 4px 0 2px; color: var(--accent); }
+        .addhost:hover { background: #eaf5ee; }
+        .ungrouped .ghead { background: #f3f4f6; }
+        .ungrouped .name { font-style: italic; }
+        #status { color: var(--muted); font-size: 12px; min-width: 120px; }
+        #status.ok { color: var(--accent); }
+        #status.err { color: var(--danger); }
+        .empty { color: var(--muted); padding: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+    <header>
+        <input id="search" type="search" placeholder="Filter hostnames…" />
+        <span class="grow"></span>
+        <span id="status"></span>
+        <button id="addGroup">+ Group</button>
+        <button id="reload">Reload</button>
+        <button id="save" class="primary" disabled>Save</button>
+    </header>
+    <main id="main"><div class="empty">Loading…</div></main>
+
+    <script>
+        const api = window.hostsAPI;
+        const mainEl = document.getElementById("main");
+        const statusEl = document.getElementById("status");
+        const saveBtn = document.getElementById("save");
+        const searchEl = document.getElementById("search");
+
+        let doc = null;
+        let dirty = false;
+
+        function setStatus(text, cls) {
+            statusEl.textContent = text || "";
+            statusEl.className = cls || "";
+        }
+
+        function markDirty() {
+            dirty = true;
+            saveBtn.disabled = false;
+            setStatus("Unsaved changes", "");
+        }
+
+        function isLocal(ip) { return ip === "127.0.0.1"; }
+
+        // ---- entry row ----
+        function makeRow(node, container, onEnter, refresh) {
+            const row = document.createElement("div");
+            row.className = "row" + (node.enabled ? "" : " off");
+
+            if (!isLocal(node.ip)) {
+                const badge = document.createElement("span");
+                badge.className = "ipbadge";
+                badge.textContent = node.ip;
+                badge.title = "This entry uses a non-local IP (preserved on save)";
+                row.appendChild(badge);
+            }
+
+            const host = document.createElement("input");
+            host.className = "host";
+            host.type = "text";
+            host.value = node.host;
+            host.spellcheck = false;
+            host.addEventListener("input", () => {
+                node.host = host.value;
+                node.raw = null;
+                markDirty();
+            });
+            function removeRow() {
+                const arr = container._nodes;
+                const i = arr.indexOf(node);
+                if (i >= 0) arr.splice(i, 1);
+                row.remove();
+                if (refresh) refresh();
+                markDirty();
+            }
+            host.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (onEnter) onEnter();
+                } else if (e.key === "Backspace" && host.value === "") {
+                    // Delete this empty row and land the cursor at the end of the previous one.
+                    e.preventDefault();
+                    const prev = row.previousElementSibling;
+                    removeRow();
+                    if (prev && prev._host) {
+                        prev._host.focus();
+                        const len = prev._host.value.length;
+                        prev._host.setSelectionRange(len, len);
+                    }
+                }
+            });
+            row.appendChild(host);
+            row._host = host;
+
+            const del = document.createElement("button");
+            del.className = "icon-btn danger";
+            del.textContent = "✕";
+            del.title = "Delete";
+            del.addEventListener("click", removeRow);
+            row.appendChild(del);
+
+            row._node = node;
+            return row;
+        }
+
+        // ---- group (or ungrouped) section ----
+        function makeGroup(group, opts) {
+            opts = opts || {};
+            const el = document.createElement("section");
+            el.className = "group" + (opts.ungrouped ? " ungrouped" : "");
+
+            const entryNodes = () => group.children.filter((c) => c.t === "entry");
+            const allEnabled = () => {
+                const es = entryNodes();
+                return es.length === 0 || es.every((e) => e.enabled);
+            };
+
+            const head = document.createElement("div");
+            head.className = "ghead";
+
+            const caret = document.createElement("span");
+            caret.className = "caret";
+            caret.textContent = "▾";
+            caret.addEventListener("click", () => el.classList.toggle("collapsed"));
+            head.appendChild(caret);
+
+            let chk = null;
+            if (!opts.ungrouped) {
+                chk = document.createElement("input");
+                chk.type = "checkbox";
+                chk.checked = allEnabled();
+                chk.title = "Enable / disable whole group";
+                chk.addEventListener("change", () => {
+                    for (const e of entryNodes()) {
+                        if (e.enabled !== chk.checked) {
+                            e.enabled = chk.checked;
+                            e.raw = null;
+                        }
+                    }
+                    refreshGroupState();
+                    markDirty();
+                });
+                head.appendChild(chk);
+            }
+
+            const name = document.createElement(opts.ungrouped ? "span" : "input");
+            name.className = "name";
+            if (opts.ungrouped) {
+                name.textContent = "Ungrouped";
+                name.title = "Entries not inside a #==== group";
+            } else {
+                name.value = group.name;
+                name.spellcheck = false;
+                name.title = "Click to rename group";
+                name.addEventListener("input", () => {
+                    group.name = name.value;
+                    group.rawOpen = null;
+                    markDirty();
+                });
+                name.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        addEntry();
+                    }
+                });
+            }
+            head.appendChild(name);
+
+            const count = document.createElement("span");
+            count.className = "count";
+            head.appendChild(count);
+
+            const spacer = document.createElement("span");
+            spacer.className = "grow";
+            spacer.style.flex = "1";
+            head.appendChild(spacer);
+
+            if (!opts.ungrouped) {
+                const delG = document.createElement("button");
+                delG.className = "icon-btn danger";
+                delG.textContent = "🗑";
+                delG.title = "Delete group";
+                delG.addEventListener("click", () => {
+                    const n = entryNodes().length;
+                    if (n > 0 && !confirm('Delete group "' + group.name + '" and its ' + n + ' entr' + (n === 1 ? "y" : "ies") + "?")) return;
+                    const i = doc.nodes.indexOf(group);
+                    if (i >= 0) doc.nodes.splice(i, 1);
+                    el.remove();
+                    markDirty();
+                });
+                head.appendChild(delG);
+            }
+
+            el.appendChild(head);
+
+            const body = document.createElement("div");
+            body.className = "gbody";
+            const rows = document.createElement("div");
+            rows.className = "rows";
+            rows._nodes = group.children; // splice target for deletes
+            body.appendChild(rows);
+
+            function refreshGroupState() {
+                const enabled = allEnabled();
+                el.classList.toggle("disabled", !enabled);
+                if (chk) chk.checked = enabled;
+                count.textContent = "(" + entryNodes().length + ")";
+                for (const r of rows.querySelectorAll(".row")) {
+                    r.classList.toggle("off", !r._node.enabled);
+                }
+            }
+
+            function addEntry() {
+                const node = { t: "entry", raw: null, enabled: opts.ungrouped ? true : allEnabled(), ip: "127.0.0.1", host: "", comment: "" };
+                group.children.push(node);
+                const row = makeRow(node, rows, addEntry, refreshGroupState);
+                rows.insertBefore(row, add);
+                refreshGroupState();
+                row._host.focus();
+                markDirty();
+                return row;
+            }
+
+            for (const child of group.children) {
+                if (child.t === "entry") rows.appendChild(makeRow(child, rows, addEntry, refreshGroupState));
+            }
+
+            const add = document.createElement("button");
+            add.className = "addhost";
+            add.textContent = "+ hostname";
+            add.addEventListener("click", addEntry);
+            rows.appendChild(add);
+
+            el.appendChild(body);
+            refreshGroupState();
+            el._refresh = refreshGroupState;
+            return el;
+        }
+
+        function render() {
+            mainEl.textContent = "";
+            if (!doc) return;
+
+            for (const node of doc.nodes) {
+                if (node.t === "group") {
+                    mainEl.appendChild(makeGroup(node));
+                }
+            }
+
+            // Top-level entries -> synthetic Ungrouped section. We back it with
+            // doc.nodes itself so adds/deletes splice the real document (the row
+            // builder only renders the entry nodes and skips groups/raw lines).
+            const looseCount = doc.nodes.filter((n) => n.t === "entry").length;
+            if (looseCount) {
+                const pseudo = { t: "group", name: "Ungrouped", children: doc.nodes };
+                mainEl.appendChild(makeGroup(pseudo, { ungrouped: true }));
+            }
+
+            if (!mainEl.children.length) {
+                mainEl.innerHTML = '<div class="empty">No host entries found.</div>';
+            }
+            applyFilter();
+        }
+
+        function applyFilter() {
+            const q = searchEl.value.trim().toLowerCase();
+            for (const group of mainEl.querySelectorAll(".group")) {
+                let visible = 0;
+                for (const row of group.querySelectorAll(".row")) {
+                    const match = !q || (row._node.host || "").toLowerCase().includes(q);
+                    row.style.display = match ? "" : "none";
+                    if (match) visible++;
+                }
+                if (q) {
+                    group.style.display = visible ? "" : "none";
+                    group.classList.remove("collapsed");
+                } else {
+                    group.style.display = "";
+                }
+            }
+        }
+
+        async function load() {
+            setStatus("Loading…");
+            doc = await api.load();
+            dirty = false;
+            saveBtn.disabled = true;
+            render();
+            setStatus("");
+        }
+
+        async function save() {
+            saveBtn.disabled = true;
+            setStatus("Saving…");
+            try {
+                const res = await api.save(doc);
+                if (res && res.ok) {
+                    dirty = false;
+                    setStatus("Saved" + (res.elevated ? " (elevated)" : ""), "ok");
+                    // reload so raw fields resync with what's now on disk
+                    await load();
+                } else {
+                    setStatus("Save failed: " + (res && res.error ? res.error : "unknown"), "err");
+                    saveBtn.disabled = false;
+                }
+            } catch (err) {
+                setStatus("Save failed: " + err, "err");
+                saveBtn.disabled = false;
+            }
+        }
+
+        document.getElementById("addGroup").addEventListener("click", () => {
+            const group = { t: "group", name: "NEW GROUP", rawOpen: null, rawClose: null, children: [] };
+            // insert before the synthetic Ungrouped section by appending to doc.nodes
+            doc.nodes.push(group);
+            const el = makeGroup(group);
+            const ungrouped = mainEl.querySelector(".group.ungrouped");
+            mainEl.insertBefore(el, ungrouped || null);
+            const nameInput = el.querySelector(".name");
+            nameInput.focus();
+            nameInput.select && nameInput.select();
+            markDirty();
+        });
+
+        document.getElementById("reload").addEventListener("click", () => {
+            if (dirty && !confirm("Discard unsaved changes and reload from disk?")) return;
+            load();
+        });
+
+        saveBtn.addEventListener("click", save);
+        searchEl.addEventListener("input", applyFilter);
+        window.addEventListener("keydown", (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                e.preventDefault();
+                if (!saveBtn.disabled) save();
+            }
+        });
+
+        load();
+    </script>
+</body>
+</html>

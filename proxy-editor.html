@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Hosts Tray — Proxy Routes</title>
+    <style>
+        :root {
+            --bg: #f5f6f8; --card: #fff; --line: #e2e5ea; --text: #1c2128;
+            --muted: #6b7280; --accent: #2f8f4e; --danger: #c23b3b;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; }
+        body {
+            font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+            color: var(--text); background: var(--bg);
+            display: flex; flex-direction: column;
+        }
+        header {
+            position: sticky; top: 0; display: flex; align-items: center; gap: 8px;
+            padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--line); z-index: 5;
+        }
+        header .grow { flex: 1; }
+        button {
+            font: inherit; padding: 6px 12px; border: 1px solid var(--line);
+            border-radius: 6px; background: #fff; cursor: pointer;
+        }
+        button:hover { background: #f0f1f3; }
+        button:disabled { opacity: .5; cursor: default; }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .icon-btn { border: none; background: transparent; color: var(--muted); padding: 2px 6px; font-size: 15px; border-radius: 4px; }
+        .icon-btn.danger:hover { background: #fce8e8; color: var(--danger); }
+        main { flex: 1; overflow: auto; padding: 14px; }
+        .note {
+            background: #fff8e6; border: 1px solid #f0dca8; color: #6b5418;
+            border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; font-size: 12px;
+        }
+        table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+        th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 8px 10px; background: #fafbfc; border-bottom: 1px solid var(--line); }
+        td { padding: 6px 10px; border-bottom: 1px solid #f0f1f3; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        select, input {
+            font: inherit; padding: 5px 7px; border: 1px solid var(--line); border-radius: 5px; background: #fff;
+        }
+        input.path { width: 100%; font-family: ui-monospace, Consolas, monospace; }
+        input.host { width: 130px; font-family: ui-monospace, Consolas, monospace; }
+        input.port { width: 72px; font-family: ui-monospace, Consolas, monospace; }
+        td.arrow { color: var(--muted); text-align: center; width: 24px; }
+        .addrow { margin: 10px 0; }
+        .addrow button { color: var(--accent); }
+        #status { color: var(--muted); font-size: 12px; min-width: 90px; }
+        #status.ok { color: var(--accent); }
+        #status.err { color: var(--danger); }
+        .preview h3 { font-size: 12px; color: var(--muted); margin: 18px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+        pre {
+            background: #1c2128; color: #e6edf3; padding: 10px 12px; border-radius: 8px;
+            font: 12px/1.5 ui-monospace, Consolas, monospace; overflow: auto; margin: 0; white-space: pre-wrap;
+        }
+        .empty { color: var(--muted); padding: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+    <header>
+        <strong>Proxy routes</strong>
+        <span class="grow"></span>
+        <span id="status"></span>
+        <button id="reload">Reload</button>
+        <button id="save" class="primary" disabled>Save</button>
+    </header>
+    <main id="main">
+        <div class="note" id="note">
+            Routes forward incoming HTTPS traffic on the listen port to local services.
+            Path is matched as a prefix; the most specific match wins. An empty path is the catch-all.
+            <strong>Changes apply the next time the proxy is started.</strong>
+        </div>
+        <table id="table">
+            <thead>
+                <tr><th>Type</th><th>Path prefix</th><th></th><th>Target host</th><th>Port</th><th></th></tr>
+            </thead>
+            <tbody id="rows"></tbody>
+        </table>
+        <div class="addrow"><button id="addRoute">+ Add route</button></div>
+        <div class="preview">
+            <h3>proxy.conf</h3>
+            <pre id="preview"></pre>
+        </div>
+    </main>
+
+    <script>
+        const api = window.proxyAPI;
+        const rowsEl = document.getElementById("rows");
+        const statusEl = document.getElementById("status");
+        const saveBtn = document.getElementById("save");
+        const previewEl = document.getElementById("preview");
+        const noteEl = document.getElementById("note");
+
+        const DEFAULT_HOST = "127.0.0.1";
+        let config = null;
+        let dirty = false;
+
+        function setStatus(text, cls) { statusEl.textContent = text || ""; statusEl.className = cls || ""; }
+        function markDirty() { dirty = true; saveBtn.disabled = false; setStatus("Unsaved changes", ""); renderPreview(); }
+
+        // Mirror of proxy-config.lineFor so we can show a live preview.
+        function lineFor(node) {
+            if (node.t === "raw") return node.raw;
+            if (node.raw != null) return node.raw;
+            const proto = node.ws ? (node.proto || "wss") : (node.proto || "");
+            const pattern = (proto ? proto + "://" : "") + (node.hostPattern || "*") + (node.pathPrefix || "");
+            const host = node.targetHost && node.targetHost !== DEFAULT_HOST ? node.targetHost : "";
+            return pattern + " -> " + host + ":" + node.targetPort;
+        }
+
+        function renderPreview() {
+            if (!config) return;
+            previewEl.textContent = config.nodes.map(lineFor).join(config.eol === "\r\n" ? "\n" : "\n");
+        }
+
+        function makeRow(node) {
+            const tr = document.createElement("tr");
+
+            const tdType = document.createElement("td");
+            const type = document.createElement("select");
+            for (const [val, label] of [["web", "HTTP / HTTPS"], ["ws", "WebSocket"]]) {
+                const o = document.createElement("option");
+                o.value = val; o.textContent = label;
+                type.appendChild(o);
+            }
+            type.value = node.ws ? "ws" : "web";
+            type.addEventListener("change", () => {
+                node.ws = type.value === "ws";
+                node.proto = ""; // let serialize pick the default (wss / none)
+                node.raw = null;
+                markDirty();
+            });
+            tdType.appendChild(type);
+            tr.appendChild(tdType);
+
+            const tdPath = document.createElement("td");
+            const path = document.createElement("input");
+            path.className = "path";
+            path.placeholder = "/ (all paths)";
+            path.value = node.pathPrefix || "";
+            path.spellcheck = false;
+            path.addEventListener("input", () => {
+                let v = path.value.trim();
+                if (v && !v.startsWith("/")) v = "/" + v;
+                node.pathPrefix = v;
+                node.raw = null;
+                markDirty();
+            });
+            tdPath.appendChild(path);
+            tr.appendChild(tdPath);
+
+            const tdArrow = document.createElement("td");
+            tdArrow.className = "arrow";
+            tdArrow.textContent = "→";
+            tr.appendChild(tdArrow);
+
+            const tdHost = document.createElement("td");
+            const host = document.createElement("input");
+            host.className = "host";
+            host.placeholder = DEFAULT_HOST;
+            host.value = node.targetHost && node.targetHost !== DEFAULT_HOST ? node.targetHost : "";
+            host.spellcheck = false;
+            host.addEventListener("input", () => {
+                node.targetHost = host.value.trim() || DEFAULT_HOST;
+                node.raw = null;
+                markDirty();
+            });
+            tdHost.appendChild(host);
+            tr.appendChild(tdHost);
+
+            const tdPort = document.createElement("td");
+            const port = document.createElement("input");
+            port.className = "port";
+            port.type = "number";
+            port.min = "1"; port.max = "65535";
+            port.value = node.targetPort;
+            port.addEventListener("input", () => {
+                node.targetPort = parseInt(port.value, 10) || 0;
+                node.raw = null;
+                markDirty();
+            });
+            tdPort.appendChild(port);
+            tr.appendChild(tdPort);
+
+            const tdDel = document.createElement("td");
+            const del = document.createElement("button");
+            del.className = "icon-btn danger";
+            del.textContent = "✕";
+            del.title = "Delete route";
+            del.addEventListener("click", () => {
+                const i = config.nodes.indexOf(node);
+                if (i >= 0) config.nodes.splice(i, 1);
+                tr.remove();
+                markDirty();
+            });
+            tdDel.appendChild(del);
+            tr.appendChild(tdDel);
+
+            return tr;
+        }
+
+        function render() {
+            rowsEl.textContent = "";
+            const routes = config.nodes.filter((n) => n.t === "route");
+            for (const node of routes) rowsEl.appendChild(makeRow(node));
+            if (!routes.length) {
+                const tr = document.createElement("tr");
+                const td = document.createElement("td");
+                td.colSpan = 6; td.className = "empty"; td.textContent = "No routes yet — add one below.";
+                tr.appendChild(td); rowsEl.appendChild(tr);
+            }
+            renderPreview();
+        }
+
+        async function load() {
+            setStatus("Loading…");
+            config = await api.load();
+            dirty = false; saveBtn.disabled = true;
+            render();
+            setStatus("");
+        }
+
+        async function save() {
+            // drop routes with no valid port
+            config.nodes = config.nodes.filter((n) => n.t !== "route" || (n.targetPort >= 1 && n.targetPort <= 65535));
+            saveBtn.disabled = true;
+            setStatus("Saving…");
+            try {
+                const res = await api.save(config);
+                if (res && res.ok) {
+                    dirty = false;
+                    setStatus(res.restartNeeded ? "Saved — toggle the proxy off/on to apply" : "Saved", "ok");
+                    await load();
+                } else {
+                    setStatus("Save failed: " + (res && res.error ? res.error : "unknown"), "err");
+                    saveBtn.disabled = false;
+                }
+            } catch (err) {
+                setStatus("Save failed: " + err, "err");
+                saveBtn.disabled = false;
+            }
+        }
+
+        document.getElementById("addRoute").addEventListener("click", () => {
+            const node = { t: "route", raw: null, ws: false, proto: "", hostPattern: "*", pathPrefix: "", targetHost: DEFAULT_HOST, targetPort: 80 };
+            config.nodes.push(node);
+            render();
+            markDirty();
+        });
+
+        document.getElementById("reload").addEventListener("click", () => {
+            if (dirty && !confirm("Discard unsaved changes and reload?")) return;
+            load();
+        });
+
+        saveBtn.addEventListener("click", save);
+        window.addEventListener("keydown", (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); if (!saveBtn.disabled) save(); }
+        });
+
+        load();
+    </script>
+</body>
+</html>
