@@ -1,14 +1,12 @@
-const { dialog } = require('electron')
+const { dialog, app } = require('electron')
 
 var httpProxy = require('http-proxy'),
-    execSync = require('child_process').execSync,
-    format = require("util").format,
     fs = require('fs'),
     path = require('path'),
     tls = require('tls'),
-    https = require('https'),
-    sys = require('sys');
+    https = require('https');
 const forge = require('node-forge');
+const proxyConfig = require('./proxy-config');
 
 
 
@@ -23,8 +21,7 @@ module.exports = function() {
     var homePath = path.resolve("_certs"),
         
         listenPort = process.env.PORT || 443,
-        forwardHost = process.env.FORWARD_HOST || '127.0.0.1',
-        forwardPort = process.env.FORWARD_PORT || 80;
+        forwardHost = process.env.FORWARD_HOST || '127.0.0.1';
 
         function generateCertificate(name, CA) {
             const keyPath = path.resolve(homePath, name + ".key");
@@ -180,62 +177,77 @@ module.exports = function() {
         cert: fs.readFileSync(CA.cert)
     };
 
-    var proxy = httpProxy.createProxyServer({target: {host: forwardHost, port: forwardPort}});
+    // --- Routing driven by proxy.conf ------------------------------------
+    const configFile = proxyConfig.ensureConfigFile(app.getPath('userData'), __dirname);
+    const routes = proxyConfig.toRuntime(
+        proxyConfig.parse(fs.readFileSync(configFile, 'utf8')),
+        { forwardHost }
+    );
+    console.log("Proxy config: " + configFile);
 
-    proxy.on('error', function (err, req, res) {
-        console.error(err);
-        res.writeHead && res.writeHead(500, {
-            'Content-Type': 'text/plain'
+    function makeProxy(route, isWs) {
+        const server = httpProxy.createProxyServer({
+            target: { host: route.host, port: route.port },
+            ws: isWs,
+            proxyTimeout: proxyTimeout * 1000,
         });
+        server.on('error', function (err, req, res) {
+            console.error('Proxy error for ' + (req && req.url) + ':', err && (err.message || err));
+            if (res && res.writeHead) {
+                res.writeHead(502, { 'Content-Type': 'text/plain' });
+                res.end('Proxy error.\n\n' + (err && (err.stack || err.message || String(err))));
+            } else if (res && res.destroy) {
+                res.destroy(); // websocket: res is the raw socket
+            }
+        });
+        if (!isWs) {
+            server.on('proxyReq', function (proxyReq) {
+                proxyReq.setHeader('X-Forwarded-Protocol', 'https');
+                proxyReq.setHeader('X-Forwarded-Proto', 'https');
+                proxyReq.setHeader('X-Forwarded-Port', listenPort);
+            });
+        }
+        return Object.assign({}, route, { server });
+    }
 
-        res.end('Something went wrong.\n\n' + (err && (err.stack || err.message || String(err))));
-    });
+    const webRoutes = routes.web.map(function (r) { return makeProxy(r, false); });
+    const wsRoutes = routes.ws.map(function (r) { return makeProxy(r, true); });
 
-    proxy.on('proxyReq', function (proxyReq, req, res, options) {
-        proxyReq.setHeader('X-Forwarded-Protocol', 'https');
-        proxyReq.setHeader('X-Forwarded-Proto', 'https');
-        proxyReq.setHeader('X-Forwarded-Port', listenPort);
-    });
-
-    const cmwebWsProxy = httpProxy.createProxyServer({
-        target: {
-            host: forwardHost,
-            port: 5124
-        },
-        proxyTimeout: proxyTimeout*1000
-    });
-    cmwebWsProxy.addListener("error", function() {
-        console.log("error in cmwebWsProxy: ", arguments);
-    })
-    const resultsapiWsProxy = httpProxy.createProxyServer({
-        target: {
-            host: forwardHost,
-            port: 5125
-        },
-        proxyTimeout: proxyTimeout*1000
-    });
-    resultsapiWsProxy.addListener("error", function() {
-        console.log("error in resultsapiWsProxy: ", arguments);
-    })
+    // Pick the route whose path prefix best (longest) matches the request URL.
+    // An empty prefix ("*") matches everything and acts as the catch-all.
+    function pickRoute(list, url) {
+        var best = null;
+        for (var i = 0; i < list.length; i++) {
+            var prefix = list[i].pathPrefix || "";
+            if (prefix === "" || url.indexOf(prefix) === 0) {
+                if (!best || prefix.length > (best.pathPrefix || "").length) best = list[i];
+            }
+        }
+        return best;
+    }
 
     var server = https.createServer(ssl, function (req, res) {
         console.log(req.method + " https://" + req.headers.host + req.url);
-        proxy.web(req, res);
-    }).on('upgrade', function (req, socket, head) {
-        // proxy.ws(req, socket, head);
-        console.log("Websocket: " + req.method + " https://" + req.headers.host + req.url);
-        if (req.url.indexOf("/cmweb") == 0) {
-            cmwebWsProxy.ws(req, socket, head);
-        } else if (req.url.indexOf("/resultsapi") == 0) {
-            resultsapiWsProxy.ws(req, socket, head);
-        } else {
-            console.error("No websocket handling available. Expected /cmweb or /resultsapi")
+        const route = pickRoute(webRoutes, req.url);
+        if (!route) {
+            res.writeHead(502, { 'Content-Type': 'text/plain' });
+            res.end('No matching web route in proxy.conf for ' + req.url);
+            return;
         }
+        route.server.web(req, res);
+    }).on('upgrade', function (req, socket, head) {
+        console.log("Websocket: " + req.method + " https://" + req.headers.host + req.url);
+        const route = pickRoute(wsRoutes, req.url);
+        if (!route) {
+            console.error("No websocket route in proxy.conf for " + req.url);
+            socket.destroy();
+            return;
+        }
+        route.server.ws(req, socket, head);
     }).listen(listenPort);
 
-    // server.close();
-
-    console.log("Listening on %s. Forwarding to http://%s:%d  (and websockets)", listenPort, forwardHost, forwardPort);
+    console.log("Listening on %s with %d web route(s) and %d websocket route(s). Default forward host: %s",
+        listenPort, webRoutes.length, wsRoutes.length, forwardHost);
 
     return server;
 };
