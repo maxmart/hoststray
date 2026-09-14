@@ -4,7 +4,7 @@
   "main": "main.js",
   "license": "MIT",
   "author": "Max Martinsson",
-  "description": "Hosts Tray description",
+  "description": "Tray app that toggles hosts file groups and runs a local HTTPS dev proxy",
   "repository": {
     "type": "git",
     "url": "https://github.com/maxmart/hoststray"
