@@ -4,3 +4,10 @@
 
 out/
 secret.txt
+
+# Signing / publishing credentials — never commit these
+.env
+.env.*
+!.env.example
+*.p8
+*.pfx
