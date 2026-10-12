@@ -4,6 +4,7 @@
 
 out/
 secret.txt
+yarn-error.log
 
 # Signing / publishing credentials — never commit these
 .env
