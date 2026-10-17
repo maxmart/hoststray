@@ -86,3 +86,12 @@ func (a *App) InstallSkill() (string, error) {
 	}
 	return path, os.WriteFile(path, []byte(a.Skill()), 0o644)
 }
+
+func skillInstalled() bool {
+	path, err := SkillInstallPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}

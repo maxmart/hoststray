@@ -122,11 +122,14 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	if s.Update != "" {
 		on(ctx, systray.AddMenuItem("Restart to update to "+s.Update, ""), func() { a.InstallUpdate() })
 	}
+	on(ctx, systray.AddMenuItem("Open Hosts Tray…", "Open the console in your browser"), func() {
+		platform.OpenURL(a.ConsoleURL(""))
+	})
 	on(ctx, systray.AddMenuItem("Edit hosts…", "Open the hosts editor in your browser"), func() {
-		platform.OpenURL(a.EditorURL("hosts"))
+		platform.OpenURL(a.ConsoleURL("hosts"))
 	})
 	on(ctx, systray.AddMenuItem("Edit proxy routes…", "Open the proxy routes editor in your browser"), func() {
-		platform.OpenURL(a.EditorURL("routes"))
+		platform.OpenURL(a.ConsoleURL("routes"))
 	})
 	systray.AddSeparator()
 

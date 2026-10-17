@@ -22,7 +22,8 @@ and running a reverse proxy. Hosts Tray wraps all three in a tray icon.
 
 - **Hosts groups.** Mark sections of your hosts file with `#==== Name` and
   toggle each group on or off from the tray menu.
-- **Hosts editor.** Edit entries in your browser instead of a text editor.
+- **Console.** One browser page for the proxy, hosts groups, proxy routes and
+  settings, opened from the tray menu.
 - **HTTPS proxy.** Listens on port 443, issues a certificate per hostname on
   the fly from a local CA, and forwards to whatever you configure, websockets
   included.
@@ -75,8 +76,11 @@ only when all of its entries are.
 Only IPv4 entries are managed. Comments, blank lines, and anything else are
 preserved byte for byte when the file is rewritten.
 
-**Edit hosts…** opens the editor in your browser. It's served by the app on
-`127.0.0.1` and only works through the link from the tray menu.
+**Open Hosts Tray…** in the tray menu opens the console in your browser:
+an overview with the proxy and group switches, the hosts editor, the proxy
+routes editor and settings. **Edit hosts…** and **Edit proxy routes…** open
+it at those sections. It's served by the app on `127.0.0.1` and only works
+through the links from the tray menu.
 
 ### Passwords
 
@@ -104,8 +108,8 @@ absolute URLs.
 
 ### Routes
 
-Routes live in `proxy.conf` in the app's data folder and are edited from
-**Edit proxy routes…** in the tray menu. One rule per line:
+Routes live in `proxy.conf` in the app's data folder and are edited in the
+console (**Edit proxy routes…** in the tray menu). One rule per line:
 
 ```
 # <pattern> -> <target>
@@ -137,10 +141,10 @@ call these endpoints with it:
 | `POST /api/proxy/enabled` `{"enabled"}` | Start or stop the proxy |
 
 The agent token is new on each launch and only works for those three. The
-editors use a separate token that never touches disk, so agents can't add
+console uses a separate token that never touches disk, so agents can't add
 hostnames, groups or routes, or trust the CA. Pointing a real domain at
 localhost behind a trusted CA lets whoever controls it intercept that site's
-traffic, so those stay with you in the editors. The server only answers on
+traffic, so those stay with you in the console. The server only answers on
 `127.0.0.1` and rejects requests from web pages, so websites can't reach it.
 
 ## Updates
@@ -166,13 +170,13 @@ Settings, `proxy.conf`, the CA (`_certs/`) and `hoststray.log` live in
 | `LISTEN_HOST` | all interfaces | Proxy listen address, e.g. `127.0.0.1` |
 | `FORWARD_HOST` | `127.0.0.1` | Default target host for routes without one |
 | `PROXY_TIMEOUT` | `300` | Upstream response timeout in seconds |
-| `HOSTS_PATH` | system hosts file | Work on a copy instead; opens the editor at launch |
-| `OPEN_PROXY_EDITOR` | unset | Open the routes editor at launch |
-| `HOSTSTRAY_ADMIN_PORT` | `47443` | Port for the editors and API |
+| `HOSTS_PATH` | system hosts file | Work on a copy instead; opens the console at launch |
+| `OPEN_PROXY_EDITOR` | unset | Open the console at proxy routes at launch |
+| `HOSTSTRAY_ADMIN_PORT` | `47443` | Port for the console and API |
 | `HOSTSTRAY_DATA_DIR` | see above | Data folder |
 | `HOSTSTRAY_UPDATE_URL` | GitHub latest release | Release feed, for testing updates |
 
-`--headless` runs without a tray icon (editors, API and proxy still work).
+`--headless` runs without a tray icon (console, API and proxy still work).
 
 ## Development
 

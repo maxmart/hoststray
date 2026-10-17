@@ -82,16 +82,44 @@ func (e *env) do(t *testing.T, method, path string, body any, hdr map[string]str
 	return resp.StatusCode, b
 }
 
-func TestEditorPages(t *testing.T) {
+func TestConsolePage(t *testing.T) {
 	e := setup(t)
-	for path, want := range map[string]string{"/hosts": "Hosts Tray — Editor", "/routes": "Proxy Routes", "/api.js": "window.hostsAPI"} {
-		code, b := e.do(t, "GET", path, nil, nil)
-		if code != 200 || !strings.Contains(string(b), want) {
-			t.Errorf("%s: %d", path, code)
+	code, b := e.do(t, "GET", "/", nil, nil)
+	if code != 200 || !strings.Contains(string(b), "<title>Hosts Tray</title>") {
+		t.Fatalf("console: %d", code)
+	}
+	// The old editor pages now open their console section.
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, section := range []string{"hosts", "routes"} {
+		resp, err := noRedirect.Get(e.base + "/" + section)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/#"+section {
+			t.Errorf("/%s: %d %s", section, resp.StatusCode, resp.Header.Get("Location"))
 		}
 	}
-	if !strings.Contains(e.app.EditorURL("hosts"), "/hosts#token="+e.app.Token()) {
-		t.Fatal(e.app.EditorURL("hosts"))
+	if got, want := e.app.ConsoleURL("hosts"), e.base+"/#hosts&token="+e.app.Token(); got != want {
+		t.Fatalf("console URL %s, want %s", got, want)
+	}
+}
+
+func TestSettingsAreEditorOnly(t *testing.T) {
+	e := setup(t)
+	agent, _ := os.ReadFile(e.app.TokenPath())
+	for _, path := range []string{"/api/settings", "/api/trust", "/api/skill", "/api/updates/check", "/api/updates/install", "/api/open-data-folder"} {
+		if code, _ := e.do(t, "POST", path, map[string]any{}, map[string]string{"X-Hoststray-Token": string(agent)}); code != 401 {
+			t.Errorf("agent token on %s: %d", path, code)
+		}
+	}
+	tok := map[string]string{"X-Hoststray-Token": e.app.Token()}
+	if code, _ := e.do(t, "POST", "/api/settings", map[string]any{}, tok); code != 400 {
+		t.Errorf("empty settings: %d", code)
+	}
+	code, b := e.do(t, "GET", "/api/status", nil, tok)
+	if code != 200 || !strings.Contains(string(b), `"dataDir"`) || !strings.Contains(string(b), `"loginItem"`) {
+		t.Errorf("status: %d %s", code, b)
 	}
 }
 

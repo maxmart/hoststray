@@ -29,15 +29,18 @@ func (a *App) Handler() http.Handler {
 	page := func(name string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			b, _ := webFS.ReadFile("web/" + name)
-			w.Header().Set("Content-Type", contentType(name))
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
 			w.Write(b)
 		}
 	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/hosts", http.StatusFound) })
-	mux.HandleFunc("GET /hosts", page("editor.html"))
-	mux.HandleFunc("GET /routes", page("proxy-editor.html"))
-	mux.HandleFunc("GET /api.js", page("api.js"))
+	mux.HandleFunc("GET /{$}", page("console.html"))
+	// The editors used to be separate pages.
+	for _, section := range []string{"hosts", "routes"} {
+		mux.HandleFunc("GET /"+section, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/#"+section, http.StatusFound)
+		})
+	}
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"app": "hoststray", "version": a.cfg.Version})
 	})
@@ -71,6 +74,69 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, a.SaveProxyConf(&cfg))
+	}))
+
+	// Settings, for the console only: agents can't change these.
+	mux.Handle("POST /api/settings", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			LoginItem    *bool `json:"loginItem"`
+			Passwordless *bool `json:"passwordless"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		var err error
+		switch {
+		case in.LoginItem != nil:
+			err = platform.SetLoginItem(*in.LoginItem)
+		case in.Passwordless != nil:
+			err = a.SetHostsPasswordless(*in.Passwordless)
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need "loginItem" or "passwordless"`})
+			return
+		}
+		a.changed()
+		switch {
+		case errors.Is(err, platform.ErrCancelled):
+			writeErr(w, http.StatusConflict, err)
+		case err != nil:
+			writeErr(w, http.StatusInternalServerError, err)
+		default:
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		}
+	}))
+	mux.Handle("POST /api/trust", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		if err := a.TrustCA(); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"caTrusted": a.CA.Trusted()})
+	}))
+	mux.Handle("POST /api/skill", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		path, err := a.InstallSkill()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"path": path})
+	}))
+	mux.Handle("POST /api/updates/check", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		go a.CheckForUpdates(true) // reports back with its own dialogs
+		writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+	}))
+	mux.Handle("POST /api/updates/install", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		if err := a.InstallUpdate(); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+	mux.Handle("POST /api/open-data-folder", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		if err := platform.OpenURL(a.cfg.DataDir); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))
 
 	// For agents (see skill/SKILL.md).
@@ -134,15 +200,6 @@ func (a *App) Handler() http.Handler {
 	}))
 
 	return a.localOnly(http.NewCrossOriginProtection().Handler(mux))
-}
-
-func contentType(name string) string {
-	switch {
-	case len(name) > 3 && name[len(name)-3:] == ".js":
-		return "text/javascript; charset=utf-8"
-	default:
-		return "text/html; charset=utf-8"
-	}
 }
 
 // localOnly rejects requests that didn't address this server by a loopback
@@ -210,9 +267,11 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// EditorURL is the browser URL for an editor page ("hosts" or "routes").
-func (a *App) EditorURL(page string) string {
-	return a.BaseURL() + "/" + page + "#token=" + a.token
+// ConsoleURL opens the console at a section ("", "hosts", "routes" or
+// "settings"). The token rides in the fragment, which browsers never send to
+// the server; the page moves it to session storage and drops it from the URL.
+func (a *App) ConsoleURL(section string) string {
+	return a.BaseURL() + "/#" + section + "&token=" + a.token
 }
 
 // Listen binds the admin server. It fails if another instance is running.

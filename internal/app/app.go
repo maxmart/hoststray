@@ -378,6 +378,9 @@ type Status struct {
 	Groups            []hosts.Group `json:"groups"`
 	Proxy             ProxyStatus   `json:"proxy"`
 	UpdateReady       string        `json:"updateReady,omitempty"`
+	LoginItem         bool          `json:"loginItem"`
+	DataDir           string        `json:"dataDir"`
+	SkillInstalled    bool          `json:"skillInstalled"`
 }
 
 type ProxyStatus struct {
@@ -404,7 +407,10 @@ func (a *App) Status() (Status, error) {
 		Groups:            groups,
 		Proxy: ProxyStatus{Running: a.ProxyRunning(), Port: a.cfg.ProxyPort, CATrusted: a.CA.Trusted(),
 			ConfPath: a.confPath, Routes: routes},
-		UpdateReady: a.updateVersion(),
+		UpdateReady:    a.updateVersion(),
+		LoginItem:      platform.LoginItemEnabled(),
+		DataDir:        a.cfg.DataDir,
+		SkillInstalled: skillInstalled(),
 	}, nil
 }
 

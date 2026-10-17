@@ -7,7 +7,7 @@ what the app does.
 
 Hosts Tray was rewritten from Electron to Go (branch `go-rewrite`). The macOS
 version is **done and tested**: unit and integration tests, the real tray menu,
-editors in a browser, agent access, password prompts, CA trust,
+a browser console, agent access, password prompts, CA trust,
 auto-update (including refusing badly signed updates), the signed and
 notarized `.pkg` installer.
 
@@ -39,7 +39,7 @@ folder:
 $env:HOSTS_PATH = "$env:TEMP\hosts-test"; copy C:\Windows\System32\drivers\etc\hosts $env:HOSTS_PATH
 $env:HOSTSTRAY_DATA_DIR = "$env:TEMP\hoststray-test"
 $env:PORT = "8443"; $env:HOSTSTRAY_ADMIN_PORT = "47999"
-.\hoststray.exe          # or --headless (no tray; editors, API, proxy still work)
+.\hoststray.exe          # or --headless (no tray; console, API, proxy still work)
 ```
 
 A copy in `%TEMP%` is writable, so it **won't** exercise UAC. To test
@@ -74,7 +74,7 @@ Other things to watch:
 
 1. `go test ./...` passes. `internal/platform` has Windows tests for the
    registry login item and file writability.
-2. The app starts with a tray icon. The menu shows version, editors, proxy,
+2. The app starts with a tray icon. The menu shows version, console links, proxy,
    groups, Settings, Quit.
 3. Toggle a group on the **real** hosts file: UAC prompt → file changes → the
    app offers "Change hosts without password?" → Yes (UAC again) → the next
@@ -84,7 +84,7 @@ Other things to watch:
    confirmation → `https://<a hosts-mapped name>` loads in Edge or Chrome
    without a warning. The tray icon turns green. Check a websocket route if
    you can.
-5. **Edit hosts…** and **Edit proxy routes…** open in the browser; saving
+5. **Open Hosts Tray…**, **Edit hosts…** and **Edit proxy routes…** open the console; saving
    works; route changes apply without restarting the proxy.
 6. Settings → **Launch at login**, sign out and back in, and it starts.
 7. Agents: Settings → **Install agent skill**, then have Claude read the hosts

@@ -70,10 +70,10 @@ func main() {
 	a.StartUpdateChecks()
 	// Working on a hosts copy is a test setup: show the editor straight away.
 	if os.Getenv("HOSTS_PATH") != "" && !*headless {
-		platform.OpenURL(a.EditorURL("hosts"))
+		platform.OpenURL(a.ConsoleURL("hosts"))
 	}
 	if os.Getenv("OPEN_PROXY_EDITOR") != "" && !*headless {
-		platform.OpenURL(a.EditorURL("routes"))
+		platform.OpenURL(a.ConsoleURL("routes"))
 	}
 
 	if *headless {

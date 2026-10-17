@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'" />
+<title>Hosts Tray</title>
+<style>
+:root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --sidebar: #eef0f3;
+    --line: #e2e5ea;
+    --line-soft: #eef0f2;
+    --text: #16191d;
+    --muted: #667085;
+    --faint: #98a2b3;
+    --accent: #1f8a4c;
+    --accent-hover: #1a7a43;
+    --accent-weak: #e6f4ec;
+    --danger: #c23b3b;
+    --danger-weak: #fdecec;
+    --warn-text: #8a5300;
+    --warn-bg: #fff5e1;
+    --warn-line: #f2dcae;
+    --field: #ffffff;
+    --hover: #f2f4f6;
+    --track: #d0d5dd;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #111316;
+        --panel: #181b1f;
+        --sidebar: #14171a;
+        --line: #2a2f36;
+        --line-soft: #22262c;
+        --text: #e6e8eb;
+        --muted: #8b949e;
+        --faint: #636c76;
+        --accent: #3fb871;
+        --accent-hover: #4cc67e;
+        --accent-weak: #16301f;
+        --danger: #f07272;
+        --danger-weak: #3a1d1d;
+        --warn-text: #e8b45a;
+        --warn-bg: #2b2212;
+        --warn-line: #4a3a1a;
+        --field: #121417;
+        --hover: #1f2328;
+        --track: #3a4048;
+        --shadow: none;
+        color-scheme: dark;
+    }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+}
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+[hidden] { display: none !important; }
+.mono { font-family: var(--mono); }
+
+/* ---- sidebar ---- */
+nav {
+    background: var(--sidebar);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 10px;
+    gap: 2px;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; }
+.brand .mark {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: var(--faint); color: #fff;
+    transition: background .2s;
+}
+.brand .mark.on { background: var(--accent); }
+.brand .mark svg.i { width: 17px; height: 17px; stroke-width: 2.4; }
+.brand b { font-size: 15px; display: block; }
+.brand small { color: var(--muted); font-size: 12px; }
+nav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 7px;
+    color: var(--muted); text-decoration: none; font-weight: 500;
+}
+nav a:hover { background: var(--hover); color: var(--text); }
+nav a[aria-current="page"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+nav a .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn-text); margin-left: auto; }
+.navfoot { margin-top: auto; padding: 10px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.pulse.on { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+
+/* ---- main ---- */
+main { min-width: 0; padding: 28px 36px 60px; }
+.page { max-width: 920px; margin: 0 auto; }
+.sechead { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.sechead .titles { flex: 1; min-width: 200px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; word-break: break-all; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.unsaved { color: var(--warn-text); font-size: 13px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 28px 0 10px; font-weight: 600; }
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+.card + .card { margin-top: 14px; }
+.cardhead { display: flex; align-items: center; gap: 12px; padding: 16px 18px; }
+.cardhead .titles { flex: 1; min-width: 0; }
+.cardhead h3 { margin: 0; font-size: 15px; }
+.cardhead p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.cardbody { border-top: 1px solid var(--line-soft); padding: 12px 18px; }
+.cardfoot { border-top: 1px solid var(--line-soft); padding: 10px 18px; display: flex; gap: 14px; align-items: center; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+a.link, button.link { color: var(--accent); text-decoration: none; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; font-weight: 500; }
+a.link:hover, button.link:hover { text-decoration: underline; }
+
+.banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-radius: 10px; margin-bottom: 18px;
+    background: var(--accent-weak); border: 1px solid var(--accent); font-size: 13px;
+}
+.banner .grow { flex: 1; }
+.note {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-text);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px;
+}
+.note .grow { flex: 1; }
+.ok-line { display: flex; gap: 8px; align-items: center; color: var(--accent); font-size: 13px; }
+
+/* ---- controls ---- */
+button.btn {
+    font: inherit; font-size: 13px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    cursor: pointer; white-space: nowrap;
+}
+button.btn:hover:not(:disabled) { background: var(--hover); }
+button.btn:disabled { opacity: .5; cursor: default; }
+button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+button.btn.small { padding: 4px 9px; font-size: 12px; }
+button.icon {
+    border: 0; background: none; color: var(--faint); cursor: pointer;
+    padding: 5px; border-radius: 6px; display: inline-grid; place-items: center;
+}
+button.icon:hover { background: var(--hover); color: var(--text); }
+button.icon.danger:hover { background: var(--danger-weak); color: var(--danger); }
+input[type=text], input[type=search], input[type=number], select {
+    font: inherit; font-size: 13px; color: var(--text);
+    background: var(--field); border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 9px;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.search { position: relative; }
+.search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--faint); }
+.search input { padding-left: 30px; width: 220px; }
+
+.switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span {
+    position: absolute; inset: 0; border-radius: 20px; background: var(--track); cursor: pointer;
+    transition: background .15s;
+}
+.switch span::after {
+    content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s;
+}
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled + span { opacity: .45; cursor: default; }
+.switch.big { width: 44px; height: 24px; }
+.switch.big span::after { width: 20px; height: 20px; }
+.switch.big input:checked + span::after { transform: translateX(20px); }
+
+/* ---- overview ---- */
+.grouplist { list-style: none; margin: 0; padding: 0; }
+.grouplist li { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--line-soft); }
+.grouplist li:first-child { border-top: 0; }
+.grouplist .gname { flex: 1; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grouplist .gmeta { color: var(--muted); font-size: 12px; }
+.stat { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- hosts editor ---- */
+.group { overflow: hidden; }
+.group + .group { margin-top: 12px; }
+.ghead { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 8px; }
+.group.off .gname-input { color: var(--muted); }
+.caret { transition: transform .12s; }
+.group.collapsed .caret { transform: rotate(-90deg); }
+.group.collapsed .gbody { display: none; }
+.gname-input {
+    font-weight: 600; font-size: 14px !important; border-color: transparent !important; background: transparent !important;
+    padding: 4px 6px !important; min-width: 60px; max-width: 360px; flex: 0 1 auto; field-sizing: content;
+}
+.gname-input:hover { border-color: var(--line) !important; }
+.gname-static { font-weight: 600; padding: 4px 6px; color: var(--muted); font-style: italic; }
+.count { color: var(--muted); font-size: 12px; background: var(--hover); border-radius: 10px; padding: 1px 8px; }
+.grow { flex: 1; }
+.gbody { border-top: 1px solid var(--line-soft); padding: 6px 12px 10px 44px; }
+.row { display: flex; align-items: center; gap: 6px; }
+.row .host {
+    flex: 1; font-family: var(--mono); font-size: 13px;
+    border-color: transparent; background: transparent; padding: 5px 8px;
+}
+.row .host:hover { border-color: var(--line); }
+.row.off .host { color: var(--faint); text-decoration: line-through; }
+.row button.icon { opacity: 0; }
+.row:hover button.icon, .row:focus-within button.icon { opacity: 1; }
+.ipbadge {
+    font-family: var(--mono); font-size: 11px; color: var(--warn-text);
+    background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 5px; padding: 1px 6px;
+}
+.addrow { margin-top: 4px; }
+.empty { color: var(--muted); text-align: center; padding: 40px 20px; }
+
+/* ---- routes editor ---- */
+.tablewrap { overflow-x: auto; }
+.routes { width: 100%; border-collapse: collapse; }
+.routes th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); font-weight: 600; padding: 10px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.routes th:first-child, .routes td:first-child { padding-left: 16px; }
+.routes td { padding: 6px 8px; border-top: 1px solid var(--line-soft); }
+.routes tr:first-child td { border-top: 0; }
+.routes input.path { width: 100%; font-family: var(--mono); }
+.routes input.thost { width: 130px; font-family: var(--mono); }
+.routes input.port { width: 84px; font-family: var(--mono); }
+.routes td.arrow { color: var(--faint); width: 20px; text-align: center; }
+.routes td.del { width: 40px; }
+details.preview { margin-top: 18px; }
+details.preview summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+pre {
+    margin: 10px 0 0; padding: 12px 14px; border-radius: 8px;
+    background: #16191d; color: #e6edf3; font: 12.5px/1.6 var(--mono); overflow: auto; white-space: pre-wrap;
+}
+.help { color: var(--muted); font-size: 13px; margin: 0 0 16px; max-width: 70ch; }
+.help code { font-family: var(--mono); font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+
+/* ---- settings ---- */
+.setting { display: flex; align-items: center; gap: 16px; padding: 16px 18px; border-top: 1px solid var(--line-soft); }
+.setting:first-child { border-top: 0; }
+.setting .titles { flex: 1; min-width: 0; }
+.setting h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.setting p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+.setting code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--hover); color: var(--muted); white-space: nowrap; }
+.pill.good { background: var(--accent-weak); color: var(--accent); }
+
+#toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
+    background: #16191d; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; max-width: 80vw;
+    box-shadow: 0 6px 24px rgba(0,0,0,.2);
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { background: var(--danger); }
+
+.expired { grid-column: 1 / -1; display: grid; place-items: center; min-height: 100vh; padding: 20px; }
+
+@media (max-width: 760px) {
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+    nav { flex-direction: row; height: auto; position: sticky; padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); z-index: 5; }
+    .brand { padding: 0 8px 0 4px; }
+    .brand div { display: none; }
+    .navfoot { display: none; }
+    main { padding: 20px 16px 60px; }
+    .search input { width: 160px; }
+    .gbody { padding-left: 12px; }
+}
+</style>
+</head>
+<body>
+<nav>
+    <div class="brand">
+        <span class="mark" id="mark"></span>
+        <div><b>Hosts Tray</b><small id="version"></small></div>
+    </div>
+    <a href="#overview" data-section="overview"><span data-icon="activity"></span>Overview</a>
+    <a href="#hosts" data-section="hosts"><span data-icon="list"></span>Hosts<span class="dot" hidden></span></a>
+    <a href="#routes" data-section="routes"><span data-icon="shuffle"></span>Proxy routes<span class="dot" hidden></span></a>
+    <a href="#settings" data-section="settings"><span data-icon="sliders"></span>Settings</a>
+    <div class="navfoot"><span class="pulse" id="pulse"></span><span id="pulseText">Connecting…</span></div>
+</nav>
+
+<main>
+    <!-- Overview -->
+    <section class="page" id="overview" hidden>
+        <div class="sechead"><div class="titles"><h1>Overview</h1></div></div>
+        <div id="ovBanner"></div>
+        <div class="card" id="ovProxy"></div>
+        <h2>Hosts groups</h2>
+        <div id="ovGroups"></div>
+    </section>
+
+    <!-- Hosts -->
+    <section class="page" id="hosts" hidden>
+        <div class="sechead">
+            <div class="titles"><h1>Hosts</h1><p class="sub mono" id="hostsPath"></p></div>
+            <div class="actions">
+                <span class="unsaved" id="hostsUnsaved" hidden>Unsaved changes</span>
+                <label class="search"><span data-icon="search"></span><input id="hostsFilter" type="search" placeholder="Filter hostnames" /></label>
+                <button class="btn" id="hostsAddGroup"><span data-icon="plus"></span>Group</button>
+                <button class="btn" id="hostsDiscard" disabled>Discard</button>
+                <button class="btn primary" id="hostsSave" disabled>Save</button>
+            </div>
+        </div>
+        <div id="hostsBody"><div class="empty">Loading…</div></div>
+    </section>
+
+    <!-- Proxy routes -->
+    <section class="page" id="routes" hidden>
+        <div class="sechead">
+            <div class="titles"><h1>Proxy routes</h1><p class="sub mono" id="routesPath"></p></div>
+            <div class="actions">
+                <span class="unsaved" id="routesUnsaved" hidden>Unsaved changes</span>
+                <button class="btn" id="routesDiscard" disabled>Discard</button>
+                <button class="btn primary" id="routesSave" disabled>Save</button>
+            </div>
+        </div>
+        <p class="help">
+            The proxy answers HTTPS for every hostname pointed at this computer and forwards to these
+            local services. Paths match as prefixes and the longest match wins; leave the path empty
+            for the catch-all. Changes apply as soon as you save.
+        </p>
+        <div class="card">
+            <div class="tablewrap"><table class="routes">
+                <thead><tr><th>Type</th><th>Path prefix</th><th></th><th>Target host</th><th>Port</th><th></th></tr></thead>
+                <tbody id="routesRows"></tbody>
+            </table></div>
+            <div class="cardfoot"><button class="btn small" id="routesAdd"><span data-icon="plus"></span>Add route</button></div>
+        </div>
+        <details class="preview"><summary>proxy.conf</summary><pre id="routesPreview"></pre></details>
+    </section>
+
+    <!-- Settings -->
+    <section class="page" id="settings" hidden>
+        <div class="sechead"><div class="titles"><h1>Settings</h1></div></div>
+        <div class="card" id="settingsCard"></div>
+    </section>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------- helpers
+
+const ICONS = {
+    loop: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+    list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+    shuffle: '<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>',
+    sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+    chevron: '<polyline points="6 9 12 15 18 9"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+    alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    arrow: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+};
+
+function icon(name) {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    t.setAttribute("viewBox", "0 0 24 24");
+    t.setAttribute("class", "i");
+    t.setAttribute("aria-hidden", "true");
+    t.innerHTML = ICONS[name];
+    return t;
+}
+
+// h("tag.class", {props}, ...children). Props starting with "on" are events.
+function h(spec, props, ...kids) {
+    const [tag, ...classes] = spec.split(".");
+    const el = document.createElement(tag || "div");
+    if (classes.length) el.className = classes.join(" ");
+    for (const [k, v] of Object.entries(props || {})) {
+        if (v === undefined || v === null) continue;
+        if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+        else if (k === "class") el.className += " " + v;
+        else if (k in el && typeof v !== "string") el[k] = v;
+        else if (k in el && ["value", "placeholder", "title", "type", "href", "textContent"].includes(k)) el[k] = v;
+        else el.setAttribute(k, v);
+    }
+    for (const kid of kids.flat()) {
+        if (kid === null || kid === undefined || kid === false) continue;
+        el.append(kid instanceof Node ? kid : String(kid));
+    }
+    return el;
+}
+
+function toggle(checked, onchange, opts) {
+    opts = opts || {};
+    const input = h("input", { type: "checkbox", checked: !!checked, disabled: !!opts.disabled, onchange });
+    if (opts.label) input.setAttribute("aria-label", opts.label);
+    return h("label.switch" + (opts.big ? ".big" : ""), { title: opts.title }, input, h("span"));
+}
+
+let toastTimer;
+function toast(text, isError) {
+    const el = document.getElementById("toast");
+    el.textContent = text;
+    el.className = "show" + (isError ? " err" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (el.className = ""), isError ? 6000 : 2600);
+}
+
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+for (const el of document.querySelectorAll("[data-icon]")) el.replaceWith(icon(el.dataset.icon));
+document.getElementById("mark").append(icon("loop"));
+
+// ---------------------------------------------------------------- API
+
+// The tray opens us at "#<section>&token=<hex>". Keep the token for this tab
+// only and drop it from the address bar.
+(function takeToken() {
+    const m = location.hash.match(/token=([0-9a-f]+)/);
+    if (!m) return;
+    sessionStorage.setItem("hoststray-token", m[1]);
+    const section = location.hash.slice(1).split("&")[0];
+    history.replaceState(null, "", "#" + (section || "overview"));
+})();
+
+class Cancelled extends Error {}
+
+async function api(method, path, body) {
+    const res = await fetch(path, {
+        method,
+        headers: { "Content-Type": "application/json", "X-Hoststray-Token": sessionStorage.getItem("hoststray-token") || "" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.status === 401) {
+        expired();
+        throw new Error("unauthorized");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409) throw new Cancelled(data.error || "cancelled");
+    if (!res.ok && !("ok" in data)) throw new Error(data.error || res.statusText);
+    return data;
+}
+
+function expired() {
+    if (document.body.dataset.expired) return;
+    document.body.dataset.expired = "1";
+    window.onbeforeunload = null;
+    document.body.replaceChildren(h("div.expired", null, h("div.card", { style: "max-width:420px;padding:24px 26px" },
+        h("h3", { style: "margin:0 0 6px" }, "This Hosts Tray window has expired"),
+        h("p.sub", { style: "margin:0" }, "Hosts Tray has restarted since it was opened. Open it again from the Hosts Tray menu."))));
+}
+
+function failed(what, err) {
+    if (err instanceof Cancelled) toast(what + ": cancelled");
+    else if (err.message !== "unauthorized") toast(what + " failed: " + err.message, true);
+}
+
+// ---------------------------------------------------------------- navigation
+
+const SECTIONS = ["overview", "hosts", "routes", "settings"];
+
+function currentSection() {
+    const s = location.hash.slice(1).split("&")[0];
+    return SECTIONS.includes(s) ? s : "overview";
+}
+
+function show() {
+    const section = currentSection();
+    for (const s of SECTIONS) document.getElementById(s).hidden = s !== section;
+    for (const a of document.querySelectorAll("nav a")) {
+        if (a.dataset.section === section) a.setAttribute("aria-current", "page");
+        else a.removeAttribute("aria-current");
+    }
+    if (section === "hosts" && !hostsEd.doc) loadHosts();
+    if (section === "routes" && !routesEd.config) loadRoutes();
+    window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", show);
+
+// ---------------------------------------------------------------- status
+
+let status = null;
+let statusJSON = "";
+
+async function refreshStatus() {
+    let next;
+    try {
+        next = await api("GET", "/api/status");
+    } catch (err) {
+        if (err.message !== "unauthorized") {
+            document.getElementById("pulseText").textContent = "Not responding";
+            document.getElementById("pulse").className = "pulse";
+        }
+        return;
+    }
+    const json = JSON.stringify(next);
+    if (json === statusJSON) return;
+    const groupsChanged = !status || JSON.stringify(status.groups) !== JSON.stringify(next.groups);
+    status = next;
+    statusJSON = json;
+    renderChrome();
+    renderOverview();
+    renderSettings();
+    // Groups switched from the tray or an agent: keep a clean editor current.
+    if (groupsChanged && hostsEd.doc && !hostsEd.dirty && !hostsEd.busy) loadHosts(true);
+}
+
+function renderChrome() {
+    const on = status.proxy.running;
+    document.getElementById("version").textContent = "Version " + status.version;
+    document.getElementById("mark").classList.toggle("on", on);
+    document.getElementById("pulse").className = "pulse" + (on ? " on" : "");
+    document.getElementById("pulseText").textContent = on ? "Proxy on · port " + status.proxy.port : "Proxy off";
+    document.getElementById("hostsPath").textContent = status.hostsPath;
+    document.getElementById("routesPath").textContent = status.proxy.confPath;
+}
+
+setInterval(() => { if (document.visibilityState === "visible") refreshStatus(); }, 3000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshStatus(); });
+
+// ---------------------------------------------------------------- overview
+
+function renderOverview() {
+    const p = status.proxy;
+    const banner = document.getElementById("ovBanner");
+    banner.replaceChildren();
+    if (status.updateReady) {
+        banner.append(h("div.banner", null,
+            h("span.grow", null, h("b", null, "Hosts Tray " + status.updateReady), " is downloaded and ready."),
+            h("button.btn.primary.small", { onclick: installUpdate }, "Restart to update")));
+    }
+
+    const web = p.routes.web.length, ws = p.routes.websocket.length;
+    const proxySwitch = toggle(p.running, async (e) => {
+        const want = e.target.checked;
+        e.target.disabled = true;
+        try {
+            const st = await api("POST", "/api/proxy/enabled", { enabled: want });
+            toast(st.running ? "Proxy started on port " + st.port : "Proxy stopped");
+        } catch (err) {
+            failed(want ? "Starting the proxy" : "Stopping the proxy", err);
+        }
+        await refreshStatus();
+        e.target.disabled = false;
+    }, { big: true, label: "HTTPS proxy" });
+
+    const trust = p.caTrusted
+        ? h("div.ok-line", null, icon("check"), "This computer trusts the Hosts Tray certificate.")
+        : h("div.note", null, icon("alert"),
+            h("span.grow", null, "Browsers will show certificate warnings until this computer trusts the Hosts Tray certificate."),
+            h("button.btn.small", { onclick: trustCA }, "Trust certificate"));
+
+    document.getElementById("ovProxy").replaceChildren(
+        h("div.cardhead", null,
+            h("div.titles", null,
+                h("h3", null, "HTTPS proxy"),
+                h("p", null, p.running ? "Listening on port " + p.port + "." : "Off. Port " + p.port + " when running.")),
+            proxySwitch),
+        h("div.cardbody", null, trust),
+        h("div.cardfoot", null,
+            h("span.stat", null, plural(web, "web route", "web routes")),
+            h("span.stat", null, plural(ws, "websocket route", "websocket routes")),
+            h("span.grow"),
+            h("a.link", { href: "#routes" }, "Edit routes")));
+
+    const groups = status.groups || [];
+    const box = document.getElementById("ovGroups");
+    if (!groups.length) {
+        box.replaceChildren(h("div.card", null, h("div.empty", null, "No groups yet. ", h("a.link", { href: "#hosts" }, "Add one in Hosts"), ".")));
+        return;
+    }
+    const locked = hostsEd.dirty;
+    const list = h("ul.grouplist");
+    for (const g of groups) {
+        list.append(h("li", null,
+            h("span.gname", { title: g.name }, g.name),
+            h("span.gmeta", null, plural(g.entries.length, "hostname", "hostnames")),
+            toggle(g.enabled, (e) => setGroup(g.name, e.target), { disabled: locked, label: g.name })));
+    }
+    const notes = [];
+    if (locked) notes.push(h("div.cardbody", null, h("div.note", null, icon("alert"),
+        h("span.grow", null, "Save or discard your edits in Hosts to switch groups here."),
+        h("a.link", { href: "#hosts" }, "Go to Hosts"))));
+    else if (!status.hostsPasswordless) notes.push(h("div.cardfoot", null,
+        "Switching a group asks for your password. ", h("a.link", { href: "#settings" }, "Change in Settings")));
+    box.replaceChildren(h("div.card", null, list, ...notes,
+        h("div.cardfoot", null, h("span.grow"), h("a.link", { href: "#hosts" }, "Edit hosts"))));
+}
+
+async function setGroup(name, input) {
+    const want = input.checked;
+    input.disabled = true;
+    try {
+        const res = await api("POST", "/api/group", { name, enabled: want });
+        toast(name + (res.enabled ? " on" : " off"));
+    } catch (err) {
+        input.checked = !want;
+        failed("Switching " + name, err);
+    }
+    input.disabled = false;
+    await refreshStatus();
+}
+
+async function trustCA() {
+    try {
+        const res = await api("POST", "/api/trust");
+        toast(res.caTrusted ? "Certificate trusted" : "Certificate not trusted yet");
+    } catch (err) { failed("Trusting the certificate", err); }
+    refreshStatus();
+}
+
+async function installUpdate() {
+    if (anyDirty() && !confirm("You have unsaved changes. Restart anyway?")) return;
+    try {
+        await api("POST", "/api/updates/install");
+        toast("Restarting…");
+    } catch (err) { failed("Updating", err); }
+}
+
+// ---------------------------------------------------------------- hosts editor
+
+const hostsEd = { doc: null, dirty: false, busy: false };
+const hostsBody = document.getElementById("hostsBody");
+const hostsFilter = document.getElementById("hostsFilter");
+
+function setHostsDirty(d) {
+    hostsEd.dirty = d;
+    document.getElementById("hostsSave").disabled = !d;
+    document.getElementById("hostsDiscard").disabled = !d;
+    document.getElementById("hostsUnsaved").hidden = !d;
+    document.querySelector('nav a[data-section="hosts"] .dot').hidden = !d;
+    if (status) renderOverview();
+}
+const hostsChanged = () => { if (!hostsEd.dirty) setHostsDirty(true); };
+
+function entryRow(node, list, onEnter, refresh) {
+    const row = h("div.row" + (node.enabled ? "" : ".off"));
+    row._node = node;
+    if (node.ip !== "127.0.0.1") row.append(h("span.ipbadge", { title: "Points at " + node.ip + " (kept as is)" }, node.ip));
+    function remove() {
+        const i = list.indexOf(node);
+        if (i >= 0) list.splice(i, 1);
+        row.remove();
+        refresh();
+        hostsChanged();
+    }
+    const host = h("input.host", {
+        type: "text", value: node.host, spellcheck: false, placeholder: "hostname.example.com",
+        "aria-label": "Hostname",
+        oninput: () => { node.host = host.value.trim(); node.raw = null; hostsChanged(); },
+        onkeydown: (e) => {
+            if (e.key === "Enter") { e.preventDefault(); onEnter(); }
+            else if (e.key === "Backspace" && host.value === "") {
+                e.preventDefault();
+                const prev = row.previousElementSibling;
+                remove();
+                if (prev && prev._host) { prev._host.focus(); prev._host.setSelectionRange(prev._host.value.length, prev._host.value.length); }
+            }
+        },
+    });
+    row._host = host;
+    row.append(host, h("button.icon.danger", { title: "Remove hostname", onclick: remove }, icon("x")));
+    return row;
+}
+
+function groupCard(group, ungrouped) {
+    const card = h("section.card.group" + (ungrouped ? ".ungrouped" : ""));
+    const entries = () => group.children.filter((c) => c.t === "entry");
+    const allOn = () => entries().length === 0 || entries().every((e) => e.enabled);
+
+    const rows = h("div.rows");
+    const count = h("span.count");
+    let sw = null;
+
+    function refresh() {
+        const on = allOn();
+        card.classList.toggle("off", !on);
+        if (sw) sw.querySelector("input").checked = on;
+        count.textContent = entries().length;
+        for (const r of rows.children) if (r._node) r.classList.toggle("off", !r._node.enabled);
+    }
+
+    function addEntry() {
+        const node = { t: "entry", raw: null, enabled: ungrouped ? true : allOn(), ip: "127.0.0.1", host: "", comment: "" };
+        group.children.push(node);
+        const row = entryRow(node, group.children, addEntry, refresh);
+        rows.append(row);
+        refresh();
+        row._host.focus();
+        hostsChanged();
+    }
+
+    const caret = h("button.icon", { title: "Collapse", onclick: () => card.classList.toggle("collapsed") }, icon("chevron"));
+    caret.firstChild.classList.add("caret");
+    const head = h("div.ghead", null, caret);
+
+    if (ungrouped) {
+        head.append(h("span.gname-static", { title: "Entries outside any group" }, "Ungrouped"), count);
+    } else {
+        sw = toggle(allOn(), (e) => {
+            for (const en of entries()) if (en.enabled !== e.target.checked) { en.enabled = e.target.checked; en.raw = null; }
+            refresh();
+            hostsChanged();
+        }, { title: "Switch the whole group on or off", label: "Group on" });
+        const name = h("input.gname-input", {
+            type: "text", value: group.name, spellcheck: false, title: "Rename group", "aria-label": "Group name",
+            oninput: () => { group.name = name.value; group.rawOpen = null; hostsChanged(); },
+            onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); addEntry(); } },
+        });
+        head.append(sw, name, count, h("span.grow"), h("button.icon.danger", {
+            title: "Delete group",
+            onclick: () => {
+                const n = entries().length;
+                if (n && !confirm('Delete "' + group.name + '" and its ' + plural(n, "hostname", "hostnames") + "?")) return;
+                hostsEd.doc.nodes.splice(hostsEd.doc.nodes.indexOf(group), 1);
+                card.remove();
+                hostsChanged();
+            },
+        }, icon("trash")));
+    }
+
+    for (const c of group.children) if (c.t === "entry") rows.append(entryRow(c, group.children, addEntry, refresh));
+    card.append(head, h("div.gbody", null, rows,
+        h("div.addrow", null, h("button.btn.small", { onclick: addEntry }, icon("plus"), "Add hostname"))));
+    card._name = card.querySelector(".gname-input");
+    refresh();
+    return card;
+}
+
+function renderHosts() {
+    hostsBody.replaceChildren();
+    const doc = hostsEd.doc;
+    for (const n of doc.nodes) if (n.t === "group") hostsBody.append(groupCard(n));
+    // Entries outside any group; backed by doc.nodes so edits land in the document.
+    if (doc.nodes.some((n) => n.t === "entry")) hostsBody.append(groupCard({ children: doc.nodes }, true));
+    if (!hostsBody.children.length) hostsBody.append(h("div.card", null, h("div.empty", null, "No hosts entries yet. Add a group to start.")));
+    filterHosts();
+}
+
+function filterHosts() {
+    const q = hostsFilter.value.trim().toLowerCase();
+    for (const card of hostsBody.querySelectorAll(".group")) {
+        let shown = 0;
+        for (const row of card.querySelectorAll(".row")) {
+            const match = !q || (row._node.host || "").toLowerCase().includes(q);
+            row.hidden = !match;
+            if (match) shown++;
+        }
+        card.hidden = !!q && !shown;
+        if (q) card.classList.remove("collapsed");
+    }
+}
+
+async function loadHosts(quiet) {
+    hostsEd.busy = true;
+    try {
+        hostsEd.doc = await api("GET", "/api/hosts");
+        renderHosts();
+        setHostsDirty(false);
+    } catch (err) {
+        if (!quiet) failed("Loading the hosts file", err);
+    }
+    hostsEd.busy = false;
+}
+
+async function saveHosts() {
+    if (!hostsEd.dirty) return;
+    const btn = document.getElementById("hostsSave");
+    btn.disabled = true;
+    try {
+        const res = await api("POST", "/api/hosts", hostsEd.doc);
+        if (!res.ok) throw new Error(res.error || "unknown error");
+        toast("Hosts file saved");
+        await loadHosts();
+        refreshStatus();
+    } catch (err) {
+        btn.disabled = false;
+        failed("Saving the hosts file", err);
+    }
+}
+
+document.getElementById("hostsAddGroup").addEventListener("click", () => {
+    if (!hostsEd.doc) return;
+    const group = { t: "group", name: "New group", rawOpen: null, rawClose: null, children: [] };
+    hostsEd.doc.nodes.push(group);
+    const card = groupCard(group);
+    hostsBody.querySelector(".empty")?.closest(".card")?.remove();
+    hostsBody.insertBefore(card, hostsBody.querySelector(".ungrouped"));
+    card._name.focus();
+    card._name.select();
+    hostsChanged();
+});
+document.getElementById("hostsDiscard").addEventListener("click", () => {
+    if (confirm("Discard your changes to the hosts file?")) loadHosts();
+});
+document.getElementById("hostsSave").addEventListener("click", saveHosts);
+hostsFilter.addEventListener("input", filterHosts);
+
+// ---------------------------------------------------------------- routes editor
+
+const routesEd = { config: null, dirty: false };
+const DEFAULT_HOST = "127.0.0.1";
+
+function setRoutesDirty(d) {
+    routesEd.dirty = d;
+    document.getElementById("routesSave").disabled = !d;
+    document.getElementById("routesDiscard").disabled = !d;
+    document.getElementById("routesUnsaved").hidden = !d;
+    document.querySelector('nav a[data-section="routes"] .dot').hidden = !d;
+}
+function routesChanged() { setRoutesDirty(true); renderPreview(); }
+
+// Mirrors proxyconf's serializer for the live preview.
+function lineFor(n) {
+    if (n.t === "raw" || n.raw != null) return n.raw;
+    const proto = n.ws ? (n.proto || "wss") : (n.proto || "");
+    const pattern = (proto ? proto + "://" : "") + (n.hostPattern || "*") + (n.pathPrefix || "");
+    const host = n.targetHost && n.targetHost !== DEFAULT_HOST ? n.targetHost : "";
+    return pattern + " -> " + host + ":" + n.targetPort;
+}
+function renderPreview() {
+    document.getElementById("routesPreview").textContent = routesEd.config ? routesEd.config.nodes.map(lineFor).join("\n") : "";
+}
+
+function routeRow(node) {
+    const edit = (f) => (e) => { f(e.target); node.raw = null; routesChanged(); };
+    const type = h("select", { "aria-label": "Type", onchange: edit((t) => { node.ws = t.value === "ws"; node.proto = ""; }) },
+        h("option", { value: "web" }, "HTTP(S)"), h("option", { value: "ws" }, "WebSocket"));
+    type.value = node.ws ? "ws" : "web";
+    const tr = h("tr", null,
+        h("td", null, type),
+        h("td", null, h("input.path", {
+            type: "text", value: node.pathPrefix || "", placeholder: "/ (all paths)", spellcheck: false, "aria-label": "Path prefix",
+            oninput: edit((t) => { let v = t.value.trim(); if (v && !v.startsWith("/")) v = "/" + v; node.pathPrefix = v; }),
+        })),
+        h("td.arrow", null, icon("arrow")),
+        h("td", null, h("input.thost", {
+            type: "text", value: node.targetHost !== DEFAULT_HOST ? node.targetHost || "" : "", placeholder: DEFAULT_HOST, spellcheck: false, "aria-label": "Target host",
+            oninput: edit((t) => { node.targetHost = t.value.trim() || DEFAULT_HOST; }),
+        })),
+        h("td", null, h("input.port", {
+            type: "number", min: "1", max: "65535", value: String(node.targetPort), "aria-label": "Port",
+            oninput: edit((t) => { node.targetPort = parseInt(t.value, 10) || 0; }),
+        })),
+        h("td.del", null, h("button.icon.danger", {
+            title: "Delete route",
+            onclick: () => { routesEd.config.nodes.splice(routesEd.config.nodes.indexOf(node), 1); renderRoutes(); routesChanged(); },
+        }, icon("trash"))));
+    return tr;
+}
+
+function renderRoutes() {
+    const body = document.getElementById("routesRows");
+    body.replaceChildren();
+    const routes = routesEd.config.nodes.filter((n) => n.t === "route");
+    for (const n of routes) body.append(routeRow(n));
+    if (!routes.length) body.append(h("tr", null, h("td.empty", { colSpan: 6 }, "No routes yet.")));
+    renderPreview();
+}
+
+async function loadRoutes() {
+    try {
+        routesEd.config = await api("GET", "/api/proxy");
+        renderRoutes();
+        setRoutesDirty(false);
+    } catch (err) { failed("Loading proxy routes", err); }
+}
+
+async function saveRoutes() {
+    if (!routesEd.dirty) return;
+    const bad = routesEd.config.nodes.find((n) => n.t === "route" && !(n.targetPort >= 1 && n.targetPort <= 65535));
+    if (bad) { toast("Every route needs a port between 1 and 65535", true); return; }
+    const btn = document.getElementById("routesSave");
+    btn.disabled = true;
+    try {
+        const res = await api("POST", "/api/proxy", routesEd.config);
+        if (!res.ok) throw new Error(res.error || "unknown error");
+        toast(res.restartNeeded ? "Saved. Turn the proxy off and on to apply." : "Routes saved");
+        await loadRoutes();
+        refreshStatus();
+    } catch (err) {
+        btn.disabled = false;
+        failed("Saving routes", err);
+    }
+}
+
+document.getElementById("routesAdd").addEventListener("click", () => {
+    if (!routesEd.config) return;
+    routesEd.config.nodes.push({ t: "route", raw: null, ws: false, proto: "", hostPattern: "*", pathPrefix: "", targetHost: DEFAULT_HOST, targetPort: 3000 });
+    renderRoutes();
+    routesChanged();
+    const inputs = document.querySelectorAll("#routesRows input.path");
+    inputs[inputs.length - 1].focus();
+});
+document.getElementById("routesDiscard").addEventListener("click", () => {
+    if (confirm("Discard your changes to the proxy routes?")) loadRoutes();
+});
+document.getElementById("routesSave").addEventListener("click", saveRoutes);
+
+// ---------------------------------------------------------------- settings
+
+function settingRow(title, text, control) {
+    return h("div.setting", null, h("div.titles", null, h("h3", null, title), h("p", null, text)), control);
+}
+
+function renderSettings() {
+    const s = status;
+    const loginSwitch = toggle(s.loginItem, (e) => updateSetting({ loginItem: e.target.checked }, e.target, "Launch at login"), { big: true, label: "Launch at login" });
+    const pwSwitch = toggle(s.hostsPasswordless, (e) => updateSetting({ passwordless: e.target.checked }, e.target, "Password-free hosts changes"), { big: true, label: "Change hosts without password" });
+    const base = location.origin;
+
+    document.getElementById("settingsCard").replaceChildren(
+        settingRow("Launch at login", "Start Hosts Tray when you sign in.", loginSwitch),
+        settingRow("Change hosts without password",
+            ["Gives your user account write access to ", h("code", null, s.hostsPath),
+             " so switching groups doesn't ask for your password. Other programs running as you could edit it too."], pwSwitch),
+        settingRow("HTTPS certificate",
+            "Hosts Tray's own certificate authority signs a certificate for each hostname sent through the proxy.",
+            s.proxy.caTrusted ? h("span.pill.good", null, "Trusted") : h("button.btn", { onclick: trustCA }, "Trust certificate")),
+        settingRow("Agent skill",
+            ["Lets coding agents switch groups and the proxy. Installs for Claude Code; other agents can read ",
+             h("code", null, base + "/SKILL.md"), "."],
+            h("button.btn", { onclick: installSkill }, s.skillInstalled ? "Reinstall" : "Install")),
+        settingRow("Updates", "Version " + s.version + (s.updateReady ? ". Version " + s.updateReady + " is ready." : "."),
+            s.updateReady ? h("button.btn.primary", { onclick: installUpdate }, "Restart to update")
+                          : h("button.btn", { onclick: checkUpdates }, "Check for updates")),
+        settingRow("Data folder", [h("code", null, s.dataDir), " holds settings, proxy routes and certificates."],
+            h("button.btn", { onclick: openDataFolder }, "Open")));
+}
+
+async function updateSetting(body, input, what) {
+    input.disabled = true;
+    try {
+        await api("POST", "/api/settings", body);
+        toast(what + (input.checked ? " on" : " off"));
+    } catch (err) {
+        input.checked = !input.checked;
+        failed(what, err);
+    }
+    input.disabled = false;
+    refreshStatus();
+}
+
+async function installSkill() {
+    try {
+        const res = await api("POST", "/api/skill");
+        toast("Skill installed at " + res.path);
+    } catch (err) { failed("Installing the skill", err); }
+    refreshStatus();
+}
+
+async function checkUpdates() {
+    try {
+        await api("POST", "/api/updates/check");
+        toast("Checking for updates…");
+    } catch (err) { failed("Checking for updates", err); }
+}
+
+async function openDataFolder() {
+    try { await api("POST", "/api/open-data-folder"); } catch (err) { failed("Opening the data folder", err); }
+}
+
+// ---------------------------------------------------------------- global
+
+const anyDirty = () => hostsEd.dirty || routesEd.dirty;
+window.onbeforeunload = (e) => { if (anyDirty()) { e.preventDefault(); e.returnValue = ""; } };
+window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        if (currentSection() === "hosts") saveHosts();
+        if (currentSection() === "routes") saveRoutes();
+    }
+});
+
+show();
+refreshStatus();
+</script>
+</body>
+</html>
