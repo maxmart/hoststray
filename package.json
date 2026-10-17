@@ -15,7 +15,9 @@
     "start": "electron .",
     "package": "electron-forge package",
     "make": "electron-forge make",
-    "publish": "electron-forge publish"
+    "make:mac": "electron-forge make --platform=darwin --arch=universal",
+    "publish": "electron-forge publish",
+    "publish:mac": "electron-forge publish --platform=darwin --arch=universal"
   },
   "build": {
     "productName": "Hosts Tray prodname",

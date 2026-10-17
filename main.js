@@ -4,7 +4,7 @@ const { updateElectronApp } = require('update-electron-app');
 updateElectronApp(); // additional configuration options available
 
 
-const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain } = require('electron')
+const { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, dialog } = require('electron')
 const fs = require("fs");
 const { join } = require('path');
 const os = require('os');
@@ -18,6 +18,7 @@ const macpath = "/etc/hosts";
 // HOSTS_PATH lets you point the app at an alternate file (used for safe testing
 // against a copy instead of the real, admin-owned system hosts file).
 const path = process.env.HOSTS_PATH || (process.platform == "win32" ? winpath : macpath);
+const isMac = process.platform === "darwin";
 let tray
 
 var currentServer = null;
@@ -47,7 +48,8 @@ function createTrayIcon(proxyRunning) {
             bitmap[i + 2] = gray;
         }
     }
-    return nativeImage.createFromBitmap(bitmap, { width: size.width, height: size.height });
+    // The 36px source is a @2x image for the 18pt macOS menu bar.
+    return nativeImage.createFromBitmap(bitmap, { width: size.width, height: size.height, scaleFactor: isMac ? 2 : 1 });
 }
 
 function updateTrayIcon() {
@@ -60,13 +62,32 @@ function updateTrayIcon() {
 // would fire window-all-closed and quit the whole app.
 app.on('window-all-closed', () => { /* keep running in the tray */ });
 
+// On Windows a checkbox click closes the menu, so reopen it to allow several
+// toggles in a row. macOS users expect the menu to close, so leave it.
+function reopenMenu(menu) {
+    if (!isMac) tray.popUpContextMenu(menu, tray.getBounds());
+}
+
+// Bring a window to the front; a Dock-less app isn't activated automatically.
+function showWindow(win) {
+    if (isMac) app.focus({ steal: true });
+    win.show();
+    win.focus();
+}
+
 app.whenReady().then(() => {
+    // Tray-only app: no Dock icon on macOS.
+    if (isMac && app.dock) app.dock.hide();
+
     const icon = createTrayIcon(false);
     tray = new Tray(icon)
 
-    tray.on('click', () => {
-        tray.popUpContextMenu();
-    })
+    // macOS already opens the context menu on click.
+    if (!isMac) {
+        tray.on('click', () => {
+            tray.popUpContextMenu();
+        })
+    }
 
     ipcMain.handle('hosts:load', () => {
         return parse(fs.readFileSync(path, 'utf8'));
@@ -149,16 +170,24 @@ function buildMenu() {
                     currentServer = startProxy();
                 }
                 updateTrayIcon();
-                tray.popUpContextMenu(menu, tray.getBounds());
+                reopenMenu(menu);
             }
         },
+        ...(isMac ? [{
+            label: "Change hosts without password",
+            type: 'checkbox',
+            checked: hostsWritable(),
+            click: (mi) => {
+                setPasswordlessHosts(mi.checked).then(() => buildMenu());
+            }
+        }] : []),
         {
             label: "Launch at start up?",
             type: 'checkbox',
             checked: app.getLoginItemSettings().openAtLogin,
             click: (mi) => {
                 app.setLoginItemSettings({ openAtLogin: mi.checked });
-                tray.popUpContextMenu(menu, tray.getBounds());
+                reopenMenu(menu);
             }
         },
         divider(),
@@ -168,7 +197,7 @@ function buildMenu() {
             checked: group.enabled,
             click: (mi) => {
                 toggleGroup(group.name, mi.checked);
-                tray.popUpContextMenu(menu, tray.getBounds());
+                reopenMenu(menu);
             }
         })),
         divider(),
@@ -181,7 +210,7 @@ function buildMenu() {
 
 function openEditor() {
     if (editorWin && !editorWin.isDestroyed()) {
-        editorWin.focus();
+        showWindow(editorWin);
         return;
     }
     editorWin = new BrowserWindow({
@@ -198,11 +227,12 @@ function openEditor() {
     editorWin.setMenuBarVisibility(false);
     editorWin.loadFile(join(__dirname, 'editor.html'));
     editorWin.on('closed', () => { editorWin = null; });
+    showWindow(editorWin);
 }
 
 function openProxyEditor() {
     if (proxyWin && !proxyWin.isDestroyed()) {
-        proxyWin.focus();
+        showWindow(proxyWin);
         return;
     }
     proxyWin = new BrowserWindow({
@@ -219,6 +249,7 @@ function openProxyEditor() {
     proxyWin.setMenuBarVisibility(false);
     proxyWin.loadFile(join(__dirname, 'proxy-editor.html'));
     proxyWin.on('closed', () => { proxyWin = null; });
+    showWindow(proxyWin);
 }
 
 // Write the hosts file, falling back to an elevated copy if the direct write is
@@ -230,7 +261,10 @@ function writeHosts(content) {
             resolve({ ok: true, elevated: false });
         } catch (err) {
             if (err && (err.code === "EPERM" || err.code === "EACCES")) {
-                elevatedWrite(content).then(resolve);
+                elevatedWrite(content).then(res => {
+                    resolve(res);
+                    if (res.ok) offerPasswordlessHosts();
+                });
             } else {
                 resolve({ ok: false, error: err && (err.message || String(err)) });
             }
@@ -251,7 +285,7 @@ function elevatedWrite(content) {
         const sudo = require("sudo-prompt");
         const command = process.platform === "win32"
             ? `cmd /c copy /Y "${tmp}" "${path}"`
-            : `cp "${tmp}" "${path}"`;
+            : `cp "${tmp}" "${path}" && (dscacheutil -flushcache; killall -HUP mDNSResponder; true)`;
 
         sudo.exec(command, { name: "Hoststray" }, (error) => {
             try { fs.unlinkSync(tmp); } catch (_) { /* ignore */ }
@@ -265,6 +299,70 @@ function elevatedWrite(content) {
 }
 
 
+// --- macOS: optional passwordless hosts writes --------------------------------
+// With the user's consent, an ACL grants the current user write access to the
+// hosts file, so later writes go direct instead of prompting for a password.
+
+const settingsFile = () => join(app.getPath('userData'), 'settings.json');
+
+function readSettings() {
+    try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch (_) { return {}; }
+}
+
+function writeSettings(patch) {
+    try {
+        fs.writeFileSync(settingsFile(), JSON.stringify({ ...readSettings(), ...patch }, null, 2));
+    } catch (err) {
+        console.error('settings write failed:', err);
+    }
+}
+
+function hostsWritable() {
+    try { fs.accessSync(path, fs.constants.W_OK); return true; } catch (_) { return false; }
+}
+
+function hostsAclEntry() {
+    const user = os.userInfo().username;
+    // Usernames go into a root shell command, so only accept plain ones.
+    return /^[A-Za-z0-9._-]+$/.test(user) ? `user:${user} allow write,append` : null;
+}
+
+function setPasswordlessHosts(enable) {
+    return new Promise((resolve) => {
+        const entry = hostsAclEntry();
+        if (!entry) return resolve(false);
+        const command = `chmod ${enable ? '+a' : '-a'} "${entry}" "${path}"`;
+        require("sudo-prompt").exec(command, { name: "Hoststray" }, (error) => {
+            if (error) {
+                console.error('ACL change failed:', error);
+                dialog.showMessageBox({
+                    type: 'error',
+                    message: 'Could not change hosts file permissions.',
+                    detail: (error.message || String(error)) + '\n\nYou can run it yourself:\nsudo ' + command,
+                });
+            }
+            resolve(!error);
+        });
+    });
+}
+
+// After a password-prompted write, offer once to skip the password from now on.
+function offerPasswordlessHosts() {
+    if (!isMac || hostsWritable() || readSettings().passwordlessDeclined) return;
+    dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Allow', 'Not now', 'Don\'t ask again'],
+        defaultId: 0,
+        cancelId: 1,
+        message: 'Change the hosts file without a password?',
+        detail: 'Hosts Tray can give your user account write access to ' + path +
+            ' so toggling groups no longer asks for your password. Other programs ' +
+            'running as you could then edit it too.\n\nYou can change this later from the tray menu.',
+    }).then(({ response }) => {
+        if (response === 0) setPasswordlessHosts(true).then(() => buildMenu());
+        else if (response === 2) writeSettings({ passwordlessDeclined: true });
+    });
+}
 
 function toggleGroup(name, enable) {
     let doc;

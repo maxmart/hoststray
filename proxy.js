@@ -18,7 +18,9 @@ module.exports = function() {
 
     const proxyTimeout = process.env.PROXY_TIMEOUT || 5*60;
     
-    var homePath = path.resolve("_certs"),
+    // Certs live in userData: a packaged app's cwd is "/" on macOS (read-only),
+    // and on Windows the Squirrel app dir changes with every update.
+    var homePath = path.join(app.getPath('userData'), "_certs"),
         
         listenPort = process.env.PORT || 443,
         forwardHost = process.env.FORWARD_HOST || '127.0.0.1';
@@ -28,8 +30,9 @@ module.exports = function() {
             const csrPath = path.resolve(homePath, name + ".csr");
             const certPath = path.resolve(homePath, name + ".crt");
         
-            // If the certificate doesn't already exist, generate it
-            if (!fs.existsSync(certPath)) {
+            // Generate the certificate if missing, or if an old leaf cert would be
+            // rejected by macOS (no serverAuth EKU / validity over 825 days).
+            if (!fs.existsSync(certPath) || (CA && !leafCertIsUsable(certPath))) {
                 console.log("Generating certificate: " + certPath);
         
                 // Generate the RSA key pair
@@ -65,7 +68,7 @@ module.exports = function() {
                     cert.serialNumber = new Date().getTime().toString();
                     cert.validity.notBefore = new Date();
                     cert.validity.notAfter = new Date();
-                    cert.validity.notAfter.setDate(cert.validity.notBefore.getDate() + 1001); // Valid for 1001 days
+                    cert.validity.notAfter.setDate(cert.validity.notBefore.getDate() + 800); // Apple caps TLS leaf certs at 825 days
         
                     cert.setSubject(csr.subject.attributes);
                     cert.setIssuer(caCert.subject.attributes);
@@ -74,7 +77,8 @@ module.exports = function() {
                     // Set extensions from the config file
                     cert.setExtensions([
                         { name: 'basicConstraints', cA: false },
-                        { name: 'keyUsage', digitalSignature: true, keyCertSign: true },
+                        { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+                        { name: 'extKeyUsage', serverAuth: true }, // required by macOS
                         {
                             name: 'subjectAltName',
                             altNames: [{ type: 2, value: name }]  // DNS type for SAN (subjectAltName)
@@ -142,7 +146,7 @@ module.exports = function() {
                             title: 'CA Certificate Installation',
                             message: 'You can manually install the CA certificate',
                             detail: 'You can manually install the CA certificate by running this command:'
-                            + (process.platform === 'win32' ? '\n\n' + `certutil -addstore Root "${certPath}"` : '\n\n' + `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${certPath}"`)
+                            + '\n\n' + trustCommand(certPath)
                         });
                     }
                 }
@@ -155,7 +159,17 @@ module.exports = function() {
         }
         
 
-    fs.existsSync(homePath) || fs.mkdirSync(homePath);
+    if (!fs.existsSync(homePath)) {
+        fs.mkdirSync(homePath, { recursive: true });
+        // Carry over a CA created by older versions in the cwd so it doesn't
+        // have to be trusted again.
+        const legacy = path.resolve("_certs");
+        if (legacy !== homePath && fs.existsSync(legacy)) {
+            for (const f of fs.readdirSync(legacy)) {
+                try { fs.copyFileSync(path.join(legacy, f), path.join(homePath, f)); } catch (_) { /* ignore */ }
+            }
+        }
+    }
 
     // force the CA
     var CA = generateCertificate('ssl.proxy.hoststray.cupmanager.net');
@@ -244,6 +258,16 @@ module.exports = function() {
             return;
         }
         route.server.ws(req, socket, head);
+    }).on('error', function (err) {
+        console.error('Proxy server error:', err);
+        dialog.showMessageBox(null, {
+            type: 'error',
+            title: 'HTTPS Proxy',
+            message: 'The proxy could not listen on port ' + listenPort + '.',
+            detail: err.code === 'EADDRINUSE'
+                ? 'Another program is already using that port.'
+                : (err.message || String(err))
+        });
     }).listen(listenPort);
 
     console.log("Listening on %s with %d web route(s) and %d websocket route(s). Default forward host: %s",
@@ -253,40 +277,69 @@ module.exports = function() {
 };
 
 
+// Leaf certs from older versions lack the serverAuth EKU and run 1001 days,
+// which macOS rejects. Treat those (and expired ones) as needing regeneration.
+function leafCertIsUsable(certPath) {
+    try {
+        const cert = forge.pki.certificateFromPem(fs.readFileSync(certPath, 'utf8'));
+        const eku = cert.getExtension('extKeyUsage');
+        const days = (cert.validity.notAfter - cert.validity.notBefore) / 86400000;
+        return !!(eku && eku.serverAuth) && days <= 825 && cert.validity.notAfter > new Date();
+    } catch (_) {
+        return false;
+    }
+}
+
+// Command the user can run themselves to trust the CA.
+function trustCommand(caCertPath) {
+    if (process.platform === 'win32') return `certutil -addstore Root "${caCertPath}"`;
+    return `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db "${caCertPath}"`;
+}
+
+function showTrustResult(error, command) {
+    if (error) {
+        dialog.showMessageBox(null, {
+            type: "error",
+            title: 'CA Certificate Installation Failed',
+            message: 'The CA certificate could not be installed.',
+            detail: 'Please try again or manually install the CA certificate by running this command:\n\n' + command
+        });
+    } else {
+        dialog.showMessageBox(null, {
+            type: "info",
+            title: 'CA Certificate Installed',
+            message: 'The CA certificate has been successfully installed.',
+            detail: 'You can now close this window.'
+        });
+    }
+}
+
 function addCAToTrustedRoot(caCertPath) {
     const execOptions = { name: 'Hoststray' };
 
     const platform = process.platform;
-    let command = '';
 
-    if (platform === 'win32') {
-        // Windows command for adding a CA cert
-        command = `certutil -addstore Root "${caCertPath}"`;
-    } else if (platform === 'darwin') {
-        // macOS command for adding a CA cert
-        command = `security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${caCertPath}"`;
+    if (platform === 'darwin') {
+        // Trust the CA in the user's login keychain. No sudo needed: macOS shows
+        // its own password prompt, and running this as root via osascript is
+        // refused on recent macOS ("no user interaction was possible").
+        const keychain = path.join(app.getPath('home'), 'Library/Keychains/login.keychain-db');
+        require('child_process').execFile('security',
+            ['add-trusted-cert', '-r', 'trustRoot', '-k', keychain, caCertPath],
+            function (error) {
+                console.log({error});
+                showTrustResult(error, trustCommand(caCertPath));
+            });
+        return;
     }
+
+    const command = trustCommand(caCertPath);
 
     // Run the command with elevated privileges
     var sudo = require('sudo-prompt');
     sudo.exec(command, execOptions, function (error, stdout, stderr) {
         console.log({error});
-        if (error) {
-            dialog.showMessageBox(null, {
-                type: "error",
-                title: 'CA Certificate Installation Failed',
-                message: 'The CA certificate could not be installed.',
-                detail: 'Please try again or manually install the CA certificate by running this command:'
-                + (platform === 'win32' ? '\n\n' + command : '\n\n' + `sudo ${command}`)
-            });
-        } else {
-            dialog.showMessageBox(null, {
-                type: "info",
-                title: 'CA Certificate Installed',
-                message: 'The CA certificate has been successfully installed.',
-                detail: 'You can now close this window.'
-            });
-        }
+        showTrustResult(error, command);
     })
 }
 
