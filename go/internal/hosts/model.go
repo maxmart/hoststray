@@ -1,0 +1,286 @@
+// Package hosts parses and serializes the hosts file.
+//
+// Design goal: faithful round-trip. Parsing then serializing an unedited
+// document reproduces the original file byte-for-byte (modulo a single
+// normalized line ending). Anything not explicitly modelled -- headers, blank
+// lines, stray comments, inline "# notes", odd whitespace, non-local IPs -- is
+// carried through verbatim via each node's Raw.
+//
+// A node is only regenerated from its structured fields when Raw is nil, which
+// the editor does when it actually changes that node.
+//
+// The JSON shape matches the original hosts-model.js so the web editor can
+// round-trip documents through the API unchanged.
+package hosts
+
+import (
+	"encoding/json"
+	"regexp"
+	"strings"
+)
+
+const GroupPrefix = "#===="
+
+var (
+	ipv4      = regexp.MustCompile(`^\d{1,3}(?:\.\d{1,3}){3}$`)
+	entryLine = regexp.MustCompile(`^(\S+)\s+(\S+)\s*(.*)$`)
+)
+
+// Node is one line ("raw" or "entry") or a "group" of lines.
+type Node struct {
+	T string // "raw", "entry" or "group"
+
+	// raw and entry
+	Raw     *string
+	Enabled bool
+	IP      string
+	Host    string
+	Comment string
+
+	// group
+	Name     string
+	RawOpen  *string
+	RawClose *string
+	Children []*Node
+}
+
+type Doc struct {
+	EOL   string  `json:"eol"`
+	Nodes []*Node `json:"nodes"`
+}
+
+type Group struct {
+	Name    string  `json:"name"`
+	Enabled bool    `json:"enabled"`
+	Entries []Entry `json:"entries"`
+}
+
+type Entry struct {
+	IP      string `json:"ip"`
+	Host    string `json:"host"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (n *Node) MarshalJSON() ([]byte, error) {
+	switch n.T {
+	case "group":
+		children := n.Children
+		if children == nil {
+			children = []*Node{}
+		}
+		return json.Marshal(struct {
+			T        string  `json:"t"`
+			Name     string  `json:"name"`
+			RawOpen  *string `json:"rawOpen"`
+			RawClose *string `json:"rawClose"`
+			Children []*Node `json:"children"`
+		}{n.T, n.Name, n.RawOpen, n.RawClose, children})
+	case "entry":
+		return json.Marshal(struct {
+			T       string  `json:"t"`
+			Raw     *string `json:"raw"`
+			Enabled bool    `json:"enabled"`
+			IP      string  `json:"ip"`
+			Host    string  `json:"host"`
+			Comment string  `json:"comment"`
+		}{n.T, n.Raw, n.Enabled, n.IP, n.Host, n.Comment})
+	default:
+		return json.Marshal(struct {
+			T   string  `json:"t"`
+			Raw *string `json:"raw"`
+		}{n.T, n.Raw})
+	}
+}
+
+func (n *Node) UnmarshalJSON(b []byte) error {
+	var v struct {
+		T        string  `json:"t"`
+		Raw      *string `json:"raw"`
+		Enabled  bool    `json:"enabled"`
+		IP       string  `json:"ip"`
+		Host     string  `json:"host"`
+		Comment  string  `json:"comment"`
+		Name     string  `json:"name"`
+		RawOpen  *string `json:"rawOpen"`
+		RawClose *string `json:"rawClose"`
+		Children []*Node `json:"children"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*n = Node{T: v.T, Raw: v.Raw, Enabled: v.Enabled, IP: v.IP, Host: v.Host, Comment: v.Comment,
+		Name: v.Name, RawOpen: v.RawOpen, RawClose: v.RawClose, Children: v.Children}
+	return nil
+}
+
+func isMarker(line string) bool { return strings.HasPrefix(line, GroupPrefix) }
+
+func markerName(line string) string { return strings.TrimSpace(line[len(GroupPrefix):]) }
+
+// trimJS trims whitespace the way JavaScript's String.prototype.trim does
+// (close enough for hosts files: ASCII whitespace plus NBSP/BOM).
+func trimJS(s string) string { return strings.TrimSpace(strings.Trim(s, "\uFEFF\u00A0")) }
+
+// ParseEntry interprets a single line as a host entry, optionally commented
+// out. ok is false if the line isn't an IPv4 entry.
+func ParseEntry(line string) (e Entry, comment string, ok bool) {
+	enabled := true
+	body := strings.TrimLeft(line, " \t\v\f\r\n\u00A0\uFEFF")
+	if strings.HasPrefix(body, "#") {
+		enabled = false
+		body = body[1:]
+	}
+	m := entryLine.FindStringSubmatch(trimJS(body))
+	if m == nil || !ipv4.MatchString(m[1]) {
+		return Entry{}, "", false
+	}
+	return Entry{IP: m[1], Host: m[2], Enabled: enabled}, trimJS(m[3]), true
+}
+
+func strp(s string) *string { return &s }
+
+func Parse(text string) *Doc {
+	eol := "\n"
+	if strings.Contains(text, "\r\n") {
+		eol = "\r\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+
+	doc := &Doc{EOL: eol, Nodes: []*Node{}}
+	var group *Node
+
+	for _, raw := range lines {
+		if isMarker(raw) {
+			if name := markerName(raw); name != "" {
+				// Opening marker. A still-open group is flushed; Serialize
+				// will give it an explicit closing marker.
+				if group != nil {
+					doc.Nodes = append(doc.Nodes, group)
+				}
+				group = &Node{T: "group", Name: name, RawOpen: strp(raw), Children: []*Node{}}
+			} else if group != nil {
+				group.RawClose = strp(raw)
+				doc.Nodes = append(doc.Nodes, group)
+				group = nil
+			} else {
+				doc.Nodes = append(doc.Nodes, &Node{T: "raw", Raw: strp(raw)})
+			}
+			continue
+		}
+
+		var node *Node
+		if e, comment, ok := ParseEntry(raw); ok {
+			node = &Node{T: "entry", Raw: strp(raw), Enabled: e.Enabled, IP: e.IP, Host: e.Host, Comment: comment}
+		} else {
+			node = &Node{T: "raw", Raw: strp(raw)}
+		}
+		if group != nil {
+			group.Children = append(group.Children, node)
+		} else {
+			doc.Nodes = append(doc.Nodes, node)
+		}
+	}
+	if group != nil {
+		doc.Nodes = append(doc.Nodes, group) // unclosed group at EOF
+	}
+	return doc
+}
+
+// lineFor returns the text for an entry/raw node; ok is false if the node
+// should be dropped (an edited entry with an empty host).
+func lineFor(n *Node) (string, bool) {
+	if n.T == "raw" {
+		if n.Raw == nil {
+			return "", true
+		}
+		return *n.Raw, true
+	}
+	if n.Raw != nil {
+		return *n.Raw, true // untouched -> verbatim
+	}
+	host := strings.TrimSpace(n.Host)
+	if host == "" {
+		return "", false
+	}
+	ip := n.IP
+	if ip == "" {
+		ip = "127.0.0.1"
+	}
+	line := ip + "  " + host
+	if !n.Enabled {
+		line = "#" + line
+	}
+	if n.Comment != "" {
+		line += "  " + n.Comment
+	}
+	return line, true
+}
+
+func Serialize(doc *Doc) string {
+	var out []string
+	for _, n := range doc.Nodes {
+		if n.T == "group" {
+			if n.RawOpen != nil {
+				out = append(out, *n.RawOpen)
+			} else {
+				out = append(out, GroupPrefix+" "+n.Name)
+			}
+			for _, c := range n.Children {
+				if line, ok := lineFor(c); ok {
+					out = append(out, line)
+				}
+			}
+			if n.RawClose != nil {
+				out = append(out, *n.RawClose)
+			} else {
+				out = append(out, GroupPrefix)
+			}
+		} else if line, ok := lineFor(n); ok {
+			out = append(out, line)
+		}
+	}
+	eol := doc.EOL
+	if eol == "" {
+		eol = "\n"
+	}
+	return strings.Join(out, eol)
+}
+
+// Groups lists the groups and whether each is fully enabled (every entry on).
+func Groups(doc *Doc) []Group {
+	groups := []Group{}
+	for _, n := range doc.Nodes {
+		if n.T != "group" {
+			continue
+		}
+		g := Group{Name: n.Name, Entries: []Entry{}}
+		all := true
+		for _, c := range n.Children {
+			if c.T == "entry" {
+				g.Entries = append(g.Entries, Entry{IP: c.IP, Host: c.Host, Enabled: c.Enabled})
+				all = all && c.Enabled
+			}
+		}
+		g.Enabled = len(g.Entries) > 0 && all
+		groups = append(groups, g)
+	}
+	return groups
+}
+
+// SetGroup enables or disables every entry in the named group. It reports
+// whether the group exists.
+func SetGroup(doc *Doc, name string, enable bool) bool {
+	for _, n := range doc.Nodes {
+		if n.T != "group" || n.Name != name {
+			continue
+		}
+		for _, c := range n.Children {
+			if c.T == "entry" && c.Enabled != enable {
+				c.Enabled = enable
+				c.Raw = nil // regenerate this line on serialize
+			}
+		}
+		return true
+	}
+	return false
+}

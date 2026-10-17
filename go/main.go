@@ -1,0 +1,101 @@
+// Hosts Tray: toggles hosts file groups and runs a local HTTPS dev proxy, from
+// a tray icon. Agents can drive it over MCP at http://127.0.0.1:47443/mcp.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/maxmart/hoststray/internal/app"
+	"github.com/maxmart/hoststray/internal/platform"
+)
+
+var version = "dev" // set with -ldflags "-X main.version=..."
+
+func main() {
+	headless := flag.Bool("headless", false, "run without a tray icon (editors and MCP still served)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
+
+	cfg := app.ConfigFromEnv(version)
+	cfg.Interactive = !*headless
+	setupLog(cfg.DataDir)
+
+	a, err := app.New(cfg)
+	if err != nil {
+		fatal(cfg, "Hosts Tray could not start.\n\n"+err.Error())
+	}
+	ln, err := a.Listen()
+	if err != nil {
+		if alreadyRunning(cfg.AdminPort) {
+			fatal(cfg, "Hosts Tray is already running. Look for its icon in the menu bar or system tray.")
+		}
+		fatal(cfg, fmt.Sprintf("Hosts Tray could not open its local port %d.\n\n%v", cfg.AdminPort, err))
+	}
+	go a.Serve(ln)
+	log.Printf("Hosts Tray %s: hosts %s, data %s, MCP %s", version, cfg.HostsPath, cfg.DataDir, a.MCPURL())
+
+	a.RestoreProxy()
+	// Like the Electron version: open the editors straight away in test setups.
+	if os.Getenv("HOSTS_PATH") != "" && !*headless {
+		platform.OpenURL(a.EditorURL("hosts"))
+	}
+	if os.Getenv("OPEN_PROXY_EDITOR") != "" && !*headless {
+		platform.OpenURL(a.EditorURL("routes"))
+	}
+
+	if *headless {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		<-sig
+		a.Shutdown()
+		return
+	}
+	runTray(a)
+}
+
+// setupLog writes to stderr and to hoststray.log in the data folder, which is
+// the only place to look when running from the tray.
+func setupLog(dir string) {
+	os.MkdirAll(dir, 0o755)
+	path := filepath.Join(dir, "hoststray.log")
+	if fi, err := os.Stat(path); err == nil && fi.Size() > 2<<20 {
+		os.Rename(path, path+".1")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+}
+
+func alreadyRunning(port int) bool {
+	c := &http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == 200
+}
+
+func fatal(cfg app.Config, msg string) {
+	log.Print(msg)
+	if cfg.Interactive {
+		platform.Alert("Hosts Tray", msg)
+	}
+	os.Exit(1)
+}
