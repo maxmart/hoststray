@@ -70,7 +70,10 @@ func Open(dir string) (a *Authority, created bool, err error) {
 }
 
 // CertPath is the CA certificate (PEM), for installing into trust stores.
-func (a *Authority) CertPath() string { return filepath.Join(a.dir, caName+".crt") }
+func (a *Authority) CertPath() string { return CAPath(a.dir) }
+
+// CAPath is where Open keeps the CA certificate in dir, without creating it.
+func CAPath(dir string) string { return filepath.Join(dir, caName+".crt") }
 
 func (a *Authority) Cert() *x509.Certificate { return a.cert }
 

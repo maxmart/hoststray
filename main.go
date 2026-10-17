@@ -30,15 +30,20 @@ var version = "dev" // set with -ldflags "-X main.version=..."
 func main() {
 	headless := flag.Bool("headless", false, "run without a tray icon (editors and API still served)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	uninstall := flag.Bool("uninstall", false, "undo certificate trust and password-free hosts access (run by the Windows uninstaller)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
 		return
 	}
+	if *uninstall {
+		os.Exit(runUninstall())
+	}
 
 	cfg := app.ConfigFromEnv(version)
 	cfg.Interactive = !*headless
 	setupLog(cfg.DataDir)
+	noteInstalledVersion()
 
 	a, err := app.New(cfg)
 	if err != nil {

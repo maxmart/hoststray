@@ -1,7 +1,10 @@
 package platform
 
 import (
+	"crypto/sha1"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -129,6 +132,31 @@ func trustCA(certPath string) error {
 
 func trustCommand(certPath string) string {
 	return `certutil -user -addstore Root "` + certPath + `"`
+}
+
+// UntrustCA removes the CA certificate at certPath from the current user's
+// Root store, if it is there; Windows asks the user to confirm. For the
+// uninstaller, so it is Windows-only.
+func UntrustCA(certPath string) error {
+	b, err := os.ReadFile(certPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(b)
+	if block == nil {
+		return fmt.Errorf("%s is not a PEM certificate", certPath)
+	}
+	sum := sha1.Sum(block.Bytes) // the store is keyed by SHA-1 thumbprint
+	thumb := hex.EncodeToString(sum[:])
+	if hidden("certutil.exe", "-user", "-store", "Root", thumb).Run() != nil {
+		return nil // not trusted
+	}
+	if out, err := hidden("certutil.exe", "-user", "-delstore", "Root", thumb).CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 var (

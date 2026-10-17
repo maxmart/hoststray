@@ -40,8 +40,14 @@ Download from the [latest release](https://github.com/maxmart/hoststray/releases
 
 - **macOS**: `Hosts-Tray-<version>.pkg` installs to Applications. The
   `-mac.zip` contains the same app if you'd rather drag it there yourself.
-- **Windows**: `hoststray-<version>-windows-amd64.exe` (or `arm64`). Put it
-  anywhere and run it.
+- **Windows**: `Hosts-Tray-<version>-windows-amd64-setup.exe` (or `arm64`)
+  installs for your user into `%LOCALAPPDATA%\Programs\Hosts Tray`, without
+  admin rights, with a Start menu entry and an uninstaller. The bare
+  `hoststray-<version>-windows-amd64.exe` also runs from anywhere.
+
+Uninstalling on Windows asks whether to also remove settings and
+certificates; yes also stops Windows trusting the Hosts Tray CA and removes
+password-free hosts access. Hosts file entries are always kept.
 
 The app lives in the menu bar (macOS) or the notification area (Windows);
 there's no window or Dock icon.
@@ -200,8 +206,10 @@ VERSION=0.11.0 ./scripts/release.sh         # publish dist/ as a GitHub release 
 
 `build-release.sh` produces `Hosts-Tray-<v>-mac.zip` and `.pkg` (universal,
 signed and notarized, via `scripts/build-mac.sh`),
-`hoststray-<v>-windows-{amd64,arm64}.exe` with icon and manifest, and the
-`SHA256SUMS` the updater requires.
+`hoststray-<v>-windows-{amd64,arm64}.exe` with icon and manifest, their
+installers `Hosts-Tray-<v>-windows-{amd64,arm64}-setup.exe` (needs
+`brew install makensis`; skipped without it, see `scripts/windows/installer.nsi`),
+and the `SHA256SUMS` the updater requires.
 
 macOS signing needs, in your keychain, a **Developer ID Application**
 certificate (and **Developer ID Installer** for the `.pkg`), plus an
@@ -209,8 +217,8 @@ app-specific password for notarization. Copy `.env.example` to `.env` and fill
 it in. Without it, `build-mac.sh` builds an ad-hoc signed app for local use;
 `NOTARIZE=0` signs without notarizing, for quick test builds.
 
-The Windows executables are not code-signed yet, so SmartScreen warns on
-first run.
+The Windows executables and installers are not code-signed yet, so
+SmartScreen warns on first run.
 
 ## License
 
