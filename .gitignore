@@ -1,6 +1,11 @@
 # Build output
 /dist
 /hoststray.exe
+
+# Leftovers from the old Electron version
+/node_modules
+/out
+yarn-error.log
 *.syso
 
 # Local data from running from source (the proxy CA and its private key)
