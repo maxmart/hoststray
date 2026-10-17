@@ -1,5 +1,3 @@
-//go:build !darwin
-
 package update
 
 import (
@@ -7,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 // install swaps the executable: a running executable can be renamed (even on
@@ -59,4 +58,8 @@ func cleanup() {
 	if exe, err := os.Executable(); err == nil {
 		os.Remove(exe + ".old")
 	}
+}
+
+func detach(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000008 | 0x00000200} // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
 }

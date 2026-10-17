@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"runtime"
 	"sync"
 	"time"
 
@@ -169,10 +168,8 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 		}
 		t.refresh(false)
 	})
-	if runtime.GOOS != "linux" {
-		pw := settings.AddSubMenuItemCheckbox("Change hosts without password", "", s.Passwordless)
-		on(ctx, pw, func() { a.SetHostsPasswordless(!s.Passwordless) })
-	}
+	pw := settings.AddSubMenuItemCheckbox("Change hosts without password", "", s.Passwordless)
+	on(ctx, pw, func() { a.SetHostsPasswordless(!s.Passwordless) })
 	on(ctx, settings.AddSubMenuItem("Copy MCP setup command", "For Claude Code; other agents use the URL "+a.MCPURL()), func() {
 		cmd := "claude mcp add --transport http hoststray " + a.MCPURL()
 		if err := platform.CopyToClipboard(cmd); err != nil {

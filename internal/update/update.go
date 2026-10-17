@@ -45,14 +45,10 @@ type Available struct {
 
 // AssetName is the release file for this OS/architecture.
 func AssetName(version string) string {
-	switch runtime.GOOS {
-	case "darwin":
+	if runtime.GOOS == "darwin" {
 		return "Hosts-Tray-" + version + "-mac.zip"
-	case "windows":
-		return "hoststray-" + version + "-windows-" + runtime.GOARCH + ".exe"
-	default:
-		return "hoststray-" + version + "-linux-" + runtime.GOARCH
 	}
+	return "hoststray-" + version + "-windows-" + runtime.GOARCH + ".exe"
 }
 
 // Newer reports whether version a is newer than b (dotted numbers, an
