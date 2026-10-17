@@ -65,6 +65,12 @@ func ElevatedWrite(path string, content []byte) (elevated bool, err error) {
 		return false, err
 	}
 	defer os.Remove(tmp.Name())
+	// CreateTemp makes the file 0600, and cp carries that over to a hosts file
+	// it creates, which would leave it readable by root only.
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return false, err
+	}
 	if _, err := tmp.Write(content); err != nil {
 		tmp.Close()
 		return false, err

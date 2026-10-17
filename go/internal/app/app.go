@@ -77,6 +77,9 @@ type App struct {
 
 	listenersMu sync.Mutex
 	listeners   []func()
+
+	pending *UpdateReady // guarded by mu
+	quit    func()
 }
 
 func New(cfg Config) (*App, error) {
@@ -367,6 +370,7 @@ type Status struct {
 	HostsPasswordless bool          `json:"hostsPasswordless"`
 	Groups            []hosts.Group `json:"groups"`
 	Proxy             ProxyStatus   `json:"proxy"`
+	UpdateReady       string        `json:"updateReady,omitempty"`
 }
 
 type ProxyStatus struct {
@@ -393,5 +397,13 @@ func (a *App) Status() (Status, error) {
 		Groups:            groups,
 		Proxy: ProxyStatus{Running: a.ProxyRunning(), Port: a.cfg.ProxyPort, CATrusted: a.CA.Trusted(),
 			ConfPath: a.confPath, Routes: routes},
+		UpdateReady: a.updateVersion(),
 	}, nil
+}
+
+func (a *App) updateVersion() string {
+	if p := a.PendingUpdate(); p != nil {
+		return p.Version
+	}
+	return ""
 }

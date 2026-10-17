@@ -39,6 +39,12 @@ func main() {
 		fatal(cfg, "Hosts Tray could not start.\n\n"+err.Error())
 	}
 	ln, err := a.Listen()
+	// After an update the previous version may still be shutting down.
+	for i := 0; err != nil && os.Getenv("HOSTSTRAY_RESTART") != "" && i < 50; i++ {
+		time.Sleep(200 * time.Millisecond)
+		ln, err = a.Listen()
+	}
+	os.Unsetenv("HOSTSTRAY_RESTART")
 	if err != nil {
 		if alreadyRunning(cfg.AdminPort) {
 			fatal(cfg, "Hosts Tray is already running. Look for its icon in the menu bar or system tray.")
@@ -49,6 +55,7 @@ func main() {
 	log.Printf("Hosts Tray %s: hosts %s, data %s, MCP %s", version, cfg.HostsPath, cfg.DataDir, a.MCPURL())
 
 	a.RestoreProxy()
+	a.StartUpdateChecks()
 	// Like the Electron version: open the editors straight away in test setups.
 	if os.Getenv("HOSTS_PATH") != "" && !*headless {
 		platform.OpenURL(a.EditorURL("hosts"))
@@ -58,6 +65,7 @@ func main() {
 	}
 
 	if *headless {
+		a.SetQuit(func() { a.Shutdown(); os.Exit(0) })
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig

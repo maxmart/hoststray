@@ -8,14 +8,16 @@
 #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID   notarization
 #   APPLE_SIGN_IDENTITY        default: the keychain's "Developer ID Application" for APPLE_TEAM_ID
 #   APPLE_INSTALLER_IDENTITY   optional; builds the .pkg
+#   NOTARIZE=0                 sign only (quick local test builds)
+#   OUT=dir                    output folder (default dist)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 [ -f ../.env ] && { set -a; source ../.env; set +a; }
 VERSION="${VERSION:-0.11.0}"
-OUT=dist
+OUT="${OUT:-dist}"
 APP="$OUT/Hosts Tray.app"
-rm -rf "$OUT" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "==> Building universal binary ($VERSION)"
 for arch in arm64 amd64; do
@@ -63,6 +65,12 @@ codesign --verify --strict --verbose=1 "$APP"
 notarize() {
 	xcrun notarytool submit "$1" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --timeout 30m
 }
+
+if [ "${NOTARIZE:-1}" = 0 ]; then
+	ditto -c -k --keepParent "$APP" "$ZIP"
+	echo "Built signed (not notarized) $APP and $ZIP"
+	exit 0
+fi
 
 echo "==> Notarizing app"
 ditto -c -k --keepParent "$APP" "$OUT/notarize.zip"

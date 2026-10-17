@@ -51,7 +51,7 @@ func TestWritableAndDirectWrite(t *testing.T) {
 	if b, _ := os.ReadFile(p); string(b) != "b" {
 		t.Fatal("not written")
 	}
-	if Writable("/etc/master.passwd") {
+	if Writable("/etc/shells") {
 		t.Fatal("root-only file reported writable")
 	}
 	if Writable(filepath.Join(t.TempDir(), "missing")) {

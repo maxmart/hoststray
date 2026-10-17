@@ -25,6 +25,7 @@ type menuState struct {
 	Trusted      bool
 	Passwordless bool
 	LoginItem    bool
+	Update       string
 }
 
 type tray struct {
@@ -39,6 +40,7 @@ type tray struct {
 
 func runTray(a *app.App) {
 	t := &tray{app: a}
+	a.SetQuit(systray.Quit)
 	systray.Run(t.onReady, a.Shutdown)
 }
 
@@ -66,6 +68,9 @@ func (t *tray) current(recheckTrust bool) *menuState {
 
 	s := &menuState{ProxyOn: t.app.ProxyRunning(), Trusted: trusted,
 		Passwordless: t.app.HostsPasswordless(), LoginItem: platform.LoginItemEnabled()}
+	if p := t.app.PendingUpdate(); p != nil {
+		s.Update = p.Version
+	}
 	groups, err := t.app.Groups()
 	if err != nil {
 		s.HostsErr = err.Error()
@@ -115,6 +120,9 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	}
 
 	systray.AddMenuItem("Hosts Tray "+version, "").Disable()
+	if s.Update != "" {
+		on(ctx, systray.AddMenuItem("Restart to update to "+s.Update, ""), func() { a.InstallUpdate() })
+	}
 	on(ctx, systray.AddMenuItem("Edit hosts…", "Open the hosts editor in your browser"), func() {
 		platform.OpenURL(a.EditorURL("hosts"))
 	})
@@ -171,6 +179,7 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 			platform.Alert("Hosts Tray", "Add this MCP server to your agent:\n\n"+a.MCPURL())
 		}
 	})
+	on(ctx, settings.AddSubMenuItem("Check for updates", ""), func() { a.CheckForUpdates(true) })
 	on(ctx, settings.AddSubMenuItem("Show data folder", a.Config().DataDir), func() {
 		platform.OpenURL(a.Config().DataDir)
 	})
