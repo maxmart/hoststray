@@ -123,6 +123,28 @@ https://*/api -> 10.0.0.5:8080 # a path prefix to another host
   Upgrades that match no websocket route use the web routes.
 - When several routes match, the longest path prefix wins. `*` is the catch-all.
 
+## Moving to another computer
+
+In the console, **Settings > Export** copies or downloads your hosts groups and
+proxy routes as one text file. The rest of the hosts file is machine-specific
+and stays behind, and so does the certificate authority: the other computer
+makes its own and trusts it once.
+
+```
+[hosts]
+#==== DEV
+127.0.0.1  app.example.com
+#====
+[routes]
+* -> :3000
+```
+
+**Settings > Import** takes the file or pasted text and shows what will change
+before anything does. Groups merge by name: the same name replaces, new names
+are added, and groups not in the file are left alone. Routes, when the file has
+them, replace the current ones. The hosts file is written once, so at most one
+password prompt. Agents can't import.
+
 ## Agents
 
 Coding agents drive Hosts Tray over its local HTTP API, guided by a skill

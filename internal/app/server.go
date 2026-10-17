@@ -131,6 +131,48 @@ func (a *App) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))
+	mux.Handle("GET /api/export", a.authed(func(w http.ResponseWriter, r *http.Request) {
+		text, err := a.Export()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="hoststray-export.txt"`)
+		io.WriteString(w, text)
+	}))
+	importHandler := func(apply bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			var in struct {
+				Text string `json:"text"`
+			}
+			if !readJSON(w, r, &in) {
+				return
+			}
+			if !apply {
+				plan, err := a.PreviewImport(in.Text)
+				if err != nil {
+					writeErr(w, http.StatusBadRequest, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, plan)
+				return
+			}
+			plan, res, err := a.ImportExport(in.Text)
+			switch {
+			case errors.Is(err, ErrNotExport):
+				writeErr(w, http.StatusBadRequest, err)
+			case errors.Is(err, platform.ErrCancelled):
+				writeErr(w, http.StatusConflict, err)
+			case err != nil:
+				writeErr(w, http.StatusInternalServerError, err)
+			default:
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true, "elevated": res.Elevated, "plan": plan})
+			}
+		}
+	}
+	mux.Handle("POST /api/import/preview", a.authed(importHandler(false)))
+	mux.Handle("POST /api/import", a.authed(importHandler(true)))
 	mux.Handle("POST /api/open-data-folder", a.authed(func(w http.ResponseWriter, r *http.Request) {
 		if err := platform.OpenURL(a.cfg.DataDir); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)

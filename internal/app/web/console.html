@@ -56,8 +56,9 @@
     }
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+html, body { margin: 0; }
 body {
+    min-height: 100vh;
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: var(--text);
     background: var(--bg);
@@ -265,6 +266,21 @@ pre {
 .setting code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
 .pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--hover); color: var(--muted); white-space: nowrap; }
 .pill.good { background: var(--accent-weak); color: var(--accent); }
+textarea {
+    width: 100%; min-height: 140px; resize: vertical; padding: 10px 12px;
+    font: 12.5px/1.5 var(--mono); color: var(--text); background: var(--field);
+    border: 1px solid var(--line); border-radius: 8px;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.plan { list-style: none; margin: 14px 0 0; padding: 0; font-size: 13px; }
+.plan li { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line-soft); }
+.plan li:first-child { border-top: 0; }
+.plan .tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; width: 64px; flex: none; color: var(--muted); }
+.plan .tag.add { color: var(--accent); }
+.plan .tag.replace { color: var(--warn-text); }
+.plan .what { flex: 1; min-width: 0; }
+.plan .meta { color: var(--muted); }
+.plan pre { margin: 6px 0 0; }
 
 #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
@@ -356,6 +372,28 @@ pre {
     <section class="page" id="settings" hidden>
         <div class="sechead"><div class="titles"><h1>Settings</h1></div></div>
         <div class="card" id="settingsCard"></div>
+
+        <h2>Move to another computer</h2>
+        <div class="card">
+            <div class="setting">
+                <div class="titles"><h3>Export</h3><p>Your hosts groups and proxy routes as one text file. The rest of the hosts file and the certificate stay on this computer.</p></div>
+                <div class="actions"><button class="btn" id="exportCopy">Copy</button><button class="btn" id="exportDownload">Download</button></div>
+            </div>
+            <div class="setting">
+                <div class="titles"><h3>Import</h3><p>Groups with the same name are replaced, new groups are added and your other groups are left alone. Routes are replaced. You see the changes before anything happens.</p></div>
+                <div class="actions"><button class="btn" id="importFile">Choose file</button><button class="btn" id="importPaste">Paste</button></div>
+            </div>
+            <div class="cardbody" id="importPanel" hidden>
+                <textarea id="importText" spellcheck="false" placeholder="Paste a Hosts Tray export here"></textarea>
+                <div id="importPlan"></div>
+                <div class="actions" style="justify-content:flex-end;margin-top:12px">
+                    <button class="btn" id="importCancel">Cancel</button>
+                    <button class="btn" id="importPreview">Preview</button>
+                    <button class="btn primary" id="importApply" disabled>Import</button>
+                </div>
+            </div>
+            <input type="file" id="importInput" accept=".txt,text/plain" hidden />
+        </div>
     </section>
 </main>
 <div id="toast"></div>
@@ -979,6 +1017,115 @@ async function checkUpdates() {
 async function openDataFolder() {
     try { await api("POST", "/api/open-data-folder"); } catch (err) { failed("Opening the data folder", err); }
 }
+
+// ---------------------------------------------------------------- export / import
+
+async function exportText() {
+    const res = await fetch("/api/export", { headers: { "X-Hoststray-Token": sessionStorage.getItem("hoststray-token") || "" } });
+    if (res.status === 401) { expired(); throw new Error("unauthorized"); }
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.text();
+}
+
+document.getElementById("exportCopy").addEventListener("click", async () => {
+    try {
+        await navigator.clipboard.writeText(await exportText());
+        toast("Export copied. Paste it into Hosts Tray on the other computer.");
+    } catch (err) { failed("Copying the export", err); }
+});
+
+document.getElementById("exportDownload").addEventListener("click", async () => {
+    try {
+        const url = URL.createObjectURL(new Blob([await exportText()], { type: "text/plain" }));
+        const a = h("a", { href: url, download: "hoststray-export.txt" });
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { failed("Exporting", err); }
+});
+
+const importPanel = document.getElementById("importPanel");
+const importText = document.getElementById("importText");
+const importPlan = document.getElementById("importPlan");
+const importApply = document.getElementById("importApply");
+let planned = null; // the text the shown preview is for
+
+function openImport(text) {
+    importPanel.hidden = false;
+    importText.value = text || "";
+    importPlan.replaceChildren();
+    importApply.disabled = true;
+    planned = null;
+    if (text) previewImport(); else importText.focus();
+}
+
+document.getElementById("importPaste").addEventListener("click", () => openImport(""));
+document.getElementById("importFile").addEventListener("click", () => document.getElementById("importInput").click());
+document.getElementById("importInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file) openImport(await file.text());
+});
+document.getElementById("importCancel").addEventListener("click", () => { importPanel.hidden = true; planned = null; });
+document.getElementById("importPreview").addEventListener("click", previewImport);
+importText.addEventListener("input", () => { importApply.disabled = true; planned = null; });
+
+async function previewImport() {
+    const text = importText.value;
+    let plan;
+    try {
+        plan = await api("POST", "/api/import/preview", { text });
+    } catch (err) {
+        importPlan.replaceChildren(h("div.note", { style: "margin-top:12px" }, icon("alert"), h("span.grow", null, err.message)));
+        importApply.disabled = true;
+        return;
+    }
+    const items = [];
+    for (const g of plan.groups) {
+        const state = g.enabled ? "on" : "off";
+        if (g.action === "add") items.push(["add", "Group " + g.name, plural(g.after, "hostname", "hostnames") + ", " + state]);
+        else if (g.action === "replace") items.push(["replace", "Group " + g.name, g.before + " → " + plural(g.after, "hostname", "hostnames") + ", " + state]);
+        else items.push(["same", "Group " + g.name, "unchanged"]);
+    }
+    let routesPre = null;
+    if (plan.routes) {
+        if (plan.routes.changed) {
+            items.push(["replace", "Proxy routes", plan.routes.before.length + " → " + plural(plan.routes.after.length, "route", "routes")]);
+            routesPre = h("pre", null, plan.routes.after.join("\n") || "(no routes)");
+        } else items.push(["same", "Proxy routes", "unchanged"]);
+    }
+    const changes = items.filter((i) => i[0] !== "same").length;
+    const list = h("ul.plan", null, items.map(([tag, what, meta], i) => h("li", null,
+        h("span.tag." + tag, null, tag === "same" ? "same" : tag),
+        h("span.what", null, what, " ", h("span.meta", null, meta), tag === "replace" && what === "Proxy routes" ? routesPre : null))));
+    const notes = [];
+    if (plan.ungrouped) notes.push(h("p.sub", null, plural(plan.ungrouped, "hostname outside any group is", "hostnames outside any group are") + " skipped."));
+    if (!items.length) notes.push(h("p.sub", null, "The export has no groups or routes."));
+    else if (!changes) notes.push(h("p.sub", null, "Everything already matches. Nothing to import."));
+    const blocked = changes && anyDirty();
+    if (blocked) notes.push(h("div.note", { style: "margin-top:10px" }, icon("alert"), h("span.grow", null, "Save or discard your edits in Hosts and Proxy routes first.")));
+    importPlan.replaceChildren(list, ...notes);
+    planned = changes && !blocked ? text : null;
+    importApply.disabled = !planned;
+}
+
+importApply.addEventListener("click", async () => {
+    if (!planned) return;
+    importApply.disabled = true;
+    try {
+        await api("POST", "/api/import", { text: planned });
+        toast("Imported");
+        importPanel.hidden = true;
+        planned = null;
+        if (hostsEd.doc) await loadHosts();
+        if (routesEd.config) await loadRoutes();
+    } catch (err) {
+        importApply.disabled = false;
+        failed("Importing", err);
+    }
+    refreshStatus();
+});
 
 // ---------------------------------------------------------------- global
 
