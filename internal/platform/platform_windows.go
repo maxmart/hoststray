@@ -1,8 +1,8 @@
 package platform
 
 import (
-	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,12 +16,15 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-func systemHostsPath() string {
-	root := os.Getenv("SystemRoot")
-	if root == "" {
-		root = `C:\Windows`
+func systemRoot() string {
+	if root := os.Getenv("SystemRoot"); root != "" {
+		return root
 	}
-	return filepath.Join(root, "System32", "drivers", "etc", "hosts")
+	return `C:\Windows`
+}
+
+func systemHostsPath() string {
+	return filepath.Join(systemRoot(), "System32", "drivers", "etc", "hosts")
 }
 
 // hidden runs a console program without flashing a console window.
@@ -31,28 +34,70 @@ func hidden(name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-func psQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+var (
+	shell32            = windows.NewLazySystemDLL("shell32.dll")
+	procShellExecuteEx = shell32.NewProc("ShellExecuteExW")
+)
+
+// shellExecuteInfo is SHELLEXECUTEINFOW; Go's alignment matches the C layout.
+type shellExecuteInfo struct {
+	cbSize     uint32
+	mask       uint32
+	hwnd       uintptr
+	verb       *uint16
+	file       *uint16
+	parameters *uint16
+	directory  *uint16
+	show       int32
+	instApp    uintptr
+	idList     uintptr
+	class      *uint16
+	keyClass   uintptr
+	hotKey     uint32
+	icon       uintptr
+	process    windows.Handle
+}
+
+const (
+	seeMaskNoCloseProcess = 0x40
+	seeMaskNoAsync        = 0x100
+	seeMaskFlagNoUI       = 0x400
+)
 
 // runElevated runs a cmd.exe command line through a UAC prompt and waits for
-// it. Declining the prompt returns ErrCancelled. Any other failure to launch
-// is reported with the message PowerShell gave, rather than being mistaken
-// for a decline.
+// it. Declining the prompt returns ErrCancelled; ShellExecuteEx reports that
+// as ERROR_CANCELLED, so it can't be confused with any other failure.
 func runElevated(cmdline string) error {
-	script := fmt.Sprintf(`try { $p = Start-Process -FilePath cmd.exe -ArgumentList %s -Verb RunAs -Wait -PassThru -WindowStyle Hidden } catch { if (($_.Exception.NativeErrorCode -eq 1223) -or ($_.Exception.InnerException.NativeErrorCode -eq 1223)) { exit 1223 }; [Console]::Error.Write($_.Exception.Message); exit 1224 }; exit $p.ExitCode`,
-		psQuote("/c "+cmdline))
-	cmd := hidden("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if ee, ok := err.(*exec.ExitError); ok {
-		switch ee.ExitCode() {
-		case 1223:
-			return ErrCancelled
-		case 1224:
-			return fmt.Errorf("could not elevate: %s", strings.TrimSpace(stderr.String()))
-		}
+	verb, _ := windows.UTF16PtrFromString("runas")
+	file, _ := windows.UTF16PtrFromString(filepath.Join(systemRoot(), "System32", "cmd.exe"))
+	params, err := windows.UTF16PtrFromString("/c " + cmdline)
+	if err != nil {
+		return err
 	}
-	return err
+	info := shellExecuteInfo{mask: seeMaskNoCloseProcess | seeMaskNoAsync | seeMaskFlagNoUI,
+		verb: verb, file: file, parameters: params, show: windows.SW_HIDE}
+	info.cbSize = uint32(unsafe.Sizeof(info))
+	if ok, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info))); ok == 0 {
+		if err == windows.ERROR_CANCELLED {
+			return ErrCancelled
+		}
+		return fmt.Errorf("could not elevate: %w", err)
+	}
+	if info.process == 0 {
+		return errors.New("could not elevate: no process started")
+	}
+	defer windows.CloseHandle(info.process)
+	if _, err := windows.WaitForSingleObject(info.process, windows.INFINITE); err != nil {
+		return err
+	}
+	var code uint32
+	if err := windows.GetExitCodeProcess(info.process, &code); err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("elevated command failed (exit code %d)", code)
+	}
+	return nil
 }
 
 func cmdQuote(s string) string { return `"` + s + `"` }
@@ -89,23 +134,24 @@ func trustCommand(certPath string) string {
 var (
 	user32                 = windows.NewLazySystemDLL("user32.dll")
 	procMessageBox         = user32.NewProc("MessageBoxW")
+	procSetWindowPos       = user32.NewProc("SetWindowPos")
+	procSetForegroundWin   = user32.NewProc("SetForegroundWindow")
 	comctl32               = windows.NewLazySystemDLL("comctl32.dll")
 	procTaskDialogIndirect = comctl32.NewProc("TaskDialogIndirect")
 )
 
 const (
-	mbOK          = 0x0
-	mbYesNoCancel = 0x3
-	mbYesNo       = 0x4
-	mbIconInfo    = 0x40
-	mbTopmost     = 0x40000
-	mbSetFg       = 0x10000
-	idYes         = 6
-	idNo          = 7
+	mbOK       = 0x0
+	mbYesNo    = 0x4
+	mbIconInfo = 0x40
+	mbTopmost  = 0x40000
+	mbSetFg    = 0x10000
+	idYes      = 6
+	idNo       = 7
 )
 
 // TASKDIALOGCONFIG is declared #pragma pack(1) in commctrl.h, so it is laid
-// out by hand rather than as a Go struct. Offsets are for amd64.
+// out by hand rather than as a Go struct. Offsets are for 64-bit Windows.
 const (
 	tdcSize       = 160
 	tdcFlags      = 20
@@ -115,11 +161,25 @@ const (
 	tdcContent    = 52
 	tdcCButtons   = 60
 	tdcPButtons   = 64
+	tdcCallback   = 140
 	tdButtonSize  = 12
 	tdfAllowClose = 0x0008 // TDF_ALLOW_DIALOG_CANCELLATION
 	tdIconInfo    = 0xFFFD // MAKEINTRESOURCEW(-3)
+	tdnCreated    = 0
 	firstButtonID = 100
 )
+
+// A tray app owns no foreground window, so without this its dialogs open
+// behind whatever is active. MessageBox gets the same from MB_TOPMOST |
+// MB_SETFOREGROUND.
+var taskDialogToFront = windows.NewCallback(func(hwnd, msg, wparam, lparam, ref uintptr) uintptr {
+	if msg == tdnCreated {
+		const hwndTopmost = ^uintptr(0)                               // (HWND)-1
+		procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, 0x1|0x2) // SWP_NOSIZE | SWP_NOMOVE
+		procSetForegroundWin.Call(hwnd)
+	}
+	return 0
+})
 
 // taskDialog shows a dialog whose buttons carry their real labels. It returns
 // the index of the button pressed, or -1 if the dialog was closed. It fails
@@ -152,6 +212,7 @@ func taskDialog(title, message string, buttons []string) (int, error) {
 	putPtr(cfg, tdcContent, str(message))
 	putU32(cfg, tdcCButtons, uint32(len(buttons)))
 	putPtr(cfg, tdcPButtons, uintptr(unsafe.Pointer(&btns[0])))
+	putPtr(cfg, tdcCallback, taskDialogToFront)
 
 	var pressed int32
 	hr, _, _ := procTaskDialogIndirect.Call(uintptr(unsafe.Pointer(&cfg[0])), uintptr(unsafe.Pointer(&pressed)), 0, 0)
@@ -179,13 +240,11 @@ func ask(title, message string, buttons []string) int {
 		}
 		return i
 	}
-	// MessageBox can't relabel its buttons, so they're named in the text.
+	// MessageBox can't relabel its buttons, so they're named in the text. Only
+	// the first two choices fit: a Cancel button would be indistinguishable
+	// from closing the box.
 	style := uintptr(mbOK)
-	switch {
-	case len(buttons) >= 3:
-		style = mbYesNoCancel
-		message += fmt.Sprintf("\n\nYes: %s\nNo: %s\nCancel: %s", buttons[0], buttons[1], buttons[2])
-	case len(buttons) == 2:
+	if len(buttons) >= 2 {
 		style = mbYesNo
 		message += fmt.Sprintf("\n\nYes: %s\nNo: %s", buttons[0], buttons[1])
 	}
@@ -199,8 +258,6 @@ func ask(title, message string, buttons []string) int {
 		return 0
 	case r == idNo:
 		return 1
-	case len(buttons) >= 3:
-		return 2
 	default:
 		return -1
 	}

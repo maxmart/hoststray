@@ -176,8 +176,13 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 			platform.Alert("Hosts Tray", "Could not install the skill.\n\n"+err.Error())
 			return
 		}
-		platform.Alert("Hosts Tray", "Installed the Hosts Tray skill for Claude Code:\n\n"+path+
-			"\n\nOther agents can read it from "+a.BaseURL()+"/SKILL.md")
+		msg := "Installed the Hosts Tray skill for Claude Code:\n\n" + path +
+			"\n\nOther agents can read it from " + a.BaseURL() + "/SKILL.md"
+		if !a.StandardSetup() {
+			msg += "\n\nThis is a test setup (custom port or data folder), and the skill points at it. " +
+				"Starting Hosts Tray normally will update it."
+		}
+		platform.Alert("Hosts Tray", msg)
 	})
 	on(ctx, settings.AddSubMenuItem("Check for updates", ""), func() { a.CheckForUpdates(true) })
 	on(ctx, settings.AddSubMenuItem("Show data folder", a.Config().DataDir), func() {

@@ -179,6 +179,7 @@ type SaveResult struct {
 	Elevated      bool   `json:"elevated,omitempty"`
 	RestartNeeded bool   `json:"restartNeeded,omitempty"`
 	Error         string `json:"error,omitempty"`
+	err           error  // the cause of Error, for errors.Is
 }
 
 // SaveHosts writes the document, elevating if needed.
@@ -188,7 +189,7 @@ func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 	a.mu.Unlock()
 	if err != nil {
 		log.Printf("hosts write failed: %v", err)
-		return SaveResult{Error: err.Error()}
+		return SaveResult{Error: err.Error(), err: err}
 	}
 	a.changed()
 	if elevated {
@@ -210,10 +211,7 @@ func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
 	}
 	res := a.SaveHosts(doc)
 	if !res.OK {
-		if res.Error == platform.ErrCancelled.Error() {
-			return res, platform.ErrCancelled
-		}
-		return res, errors.New(res.Error)
+		return res, res.err
 	}
 	return res, nil
 }
@@ -265,7 +263,7 @@ func (a *App) SaveProxyConf(cfg *proxyconf.Config) SaveResult {
 	err := os.WriteFile(a.confPath, []byte(proxyconf.Serialize(cfg)), 0o644)
 	a.mu.Unlock()
 	if err != nil {
-		return SaveResult{Error: err.Error()}
+		return SaveResult{Error: err.Error(), err: err}
 	}
 	a.applyRoutes(cfg)
 	a.changed()
@@ -330,7 +328,10 @@ func (a *App) RestoreProxy() {
 	}
 }
 
-func (a *App) Shutdown() { a.proxy.Stop() }
+func (a *App) Shutdown() {
+	a.proxy.Stop()
+	a.removeToken()
+}
 
 // --- CA trust -------------------------------------------------------------------
 

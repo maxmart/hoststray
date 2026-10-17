@@ -60,6 +60,7 @@ func main() {
 	go a.Serve(ln)
 	log.Printf("Hosts Tray %s: hosts %s, data %s, API %s", version, cfg.HostsPath, cfg.DataDir, a.BaseURL())
 
+	a.RefreshSkill()
 	a.RestoreProxy()
 	a.StartUpdateChecks()
 	// Working on a hosts copy is a test setup: show the editor straight away.

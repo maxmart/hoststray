@@ -288,3 +288,23 @@ func TestInstallSkill(t *testing.T) {
 		t.Fatal("installed skill differs")
 	}
 }
+
+func TestTokenFileLifecycle(t *testing.T) {
+	e := setup(t)
+	path := e.app.TokenPath()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("token file not written:", err)
+	}
+	// Another instance's token is left alone on shutdown.
+	os.WriteFile(path, []byte("someone-else"), 0o600)
+	e.app.removeToken()
+	if b, _ := os.ReadFile(path); string(b) != "someone-else" {
+		t.Fatalf("removed another instance's token: %q", b)
+	}
+	// Ours is removed, so agents can tell the app has stopped.
+	e.app.writeToken()
+	e.app.Shutdown()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("token file left after shutdown:", err)
+	}
+}

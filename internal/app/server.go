@@ -45,7 +45,7 @@ func (a *App) Handler() http.Handler {
 	mux.Handle("GET /api/hosts", a.authed(func(w http.ResponseWriter, r *http.Request) {
 		doc, err := a.LoadHosts()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, doc)
@@ -60,7 +60,7 @@ func (a *App) Handler() http.Handler {
 	mux.Handle("GET /api/proxy", a.authed(func(w http.ResponseWriter, r *http.Request) {
 		cfg, err := a.LoadProxyConf()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, cfg)
@@ -81,7 +81,7 @@ func (a *App) Handler() http.Handler {
 	mux.Handle("GET /api/status", a.agentAuthed(func(w http.ResponseWriter, r *http.Request) {
 		st, err := a.Status()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
@@ -101,11 +101,11 @@ func (a *App) Handler() http.Handler {
 		res, err := a.SetGroup(in.Name, *in.Enabled)
 		switch {
 		case errors.Is(err, ErrNoGroup):
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusNotFound, err)
 		case errors.Is(err, platform.ErrCancelled):
-			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusConflict, err)
 		case err != nil:
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusInternalServerError, err)
 		default:
 			writeJSON(w, http.StatusOK, map[string]any{"name": in.Name, "enabled": *in.Enabled, "elevated": res.Elevated})
 		}
@@ -122,12 +122,12 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		if err := a.SetProxy(*in.Enabled); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		st, err := a.Status()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, st.Proxy)
@@ -175,7 +175,9 @@ func (a *App) authed(f http.HandlerFunc) http.Handler { return a.requireToken(f,
 // agentAuthed also accepts the agent token from the data folder. It guards
 // only switching existing groups and the proxy: adding hostnames or routes
 // stays with the user in the editors.
-func (a *App) agentAuthed(f http.HandlerFunc) http.Handler { return a.requireToken(f, a.token, a.agentTok) }
+func (a *App) agentAuthed(f http.HandlerFunc) http.Handler {
+	return a.requireToken(f, a.token, a.agentTok)
+}
 
 func (a *App) requireToken(f http.HandlerFunc, tokens ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +224,10 @@ func (a *App) Listen() (net.Listener, error) {
 		return nil, err
 	}
 	if err := a.writeToken(); err != nil {
-		log.Printf("could not write API token: %v", err)
+		log.Printf("could not write agent token: %v", err)
+		if a.cfg.Interactive {
+			go platform.Alert("Hosts Tray", "Coding agents won't be able to reach Hosts Tray: the token file could not be written.\n\n"+err.Error())
+		}
 	}
 	return ln, nil
 }
@@ -232,4 +237,8 @@ func (a *App) Serve(ln net.Listener) {
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Printf("admin server stopped: %v", err)
 	}
+}
+
+func writeErr(w http.ResponseWriter, code int, err error) {
+	writeJSON(w, code, map[string]string{"error": err.Error()})
 }

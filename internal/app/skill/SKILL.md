@@ -56,5 +56,8 @@ certificate warnings; the user can trust the CA from the tray menu.
 
 Only switch existing groups and the proxy. New hostnames, groups and proxy
 routes are added by the user in **Edit hosts…** and **Edit proxy routes…** in
-the tray menu; ask them to do it. If the token file is missing or `/health`
-doesn't answer, Hosts Tray isn't running: ask the user to start it.
+the tray menu; ask them to do it.
+
+If the token file is missing or `/health` doesn't answer, Hosts Tray isn't
+running: ask the user to start it. A 401 means the app restarted since you
+read the token; read the file again.

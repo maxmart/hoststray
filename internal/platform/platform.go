@@ -92,7 +92,8 @@ func TrustCommand(certPath string) string { return trustCommand(certPath) }
 
 // Ask shows a dialog with up to three buttons and returns the index of the
 // one clicked (the first button is the default), or -1 if it was dismissed.
-// Windows can only offer the first two choices.
+// On Windows a build without the common-controls manifest can only offer the
+// first two.
 func Ask(title, message string, buttons ...string) int { return ask(title, message, buttons) }
 
 // Alert shows an informational or error message.

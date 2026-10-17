@@ -18,8 +18,26 @@ var skillTemplate string
 // TokenPath is where the current launch's agent token is written.
 func (a *App) TokenPath() string { return filepath.Join(a.cfg.DataDir, "token") }
 
+// writeToken replaces the token file. Removing it first means a new file is
+// created, so the 0600 mode applies even if an older file was looser (on
+// Windows the file takes the data folder's ACL, which is the user's profile).
+// If it can't be written, no stale token is left behind for agents to try.
 func (a *App) writeToken() error {
-	return os.WriteFile(a.TokenPath(), []byte(a.agentTok), 0o600)
+	path := a.TokenPath()
+	os.Remove(path)
+	if err := os.WriteFile(path, []byte(a.agentTok), 0o600); err != nil {
+		os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+// removeToken deletes the token file if it is still ours, so agents can tell
+// the app isn't running.
+func (a *App) removeToken() {
+	if b, err := os.ReadFile(a.TokenPath()); err == nil && string(b) == a.agentTok {
+		os.Remove(a.TokenPath())
+	}
 }
 
 // BaseURL is the admin server's address.
@@ -37,6 +55,24 @@ func SkillInstallPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".claude", "skills", "hoststray", "SKILL.md"), nil
+}
+
+// StandardSetup reports whether this instance uses the default admin port and
+// data folder, i.e. isn't a test run. Only then is its skill worth keeping.
+func (a *App) StandardSetup() bool {
+	return a.cfg.AdminPort == 47443 && os.Getenv("HOSTSTRAY_DATA_DIR") == ""
+}
+
+// RefreshSkill rewrites an installed skill that has gone stale (after an
+// update, or one installed from a test run). It never installs one.
+func (a *App) RefreshSkill() {
+	path, err := SkillInstallPath()
+	if err != nil || !a.StandardSetup() {
+		return
+	}
+	if b, err := os.ReadFile(path); err == nil && string(b) != a.Skill() {
+		os.WriteFile(path, []byte(a.Skill()), 0o644)
+	}
 }
 
 // InstallSkill writes the skill where Claude Code finds it and returns the path.
