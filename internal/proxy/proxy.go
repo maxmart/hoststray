@@ -43,6 +43,7 @@ type Server struct {
 
 	mu  sync.Mutex
 	srv *http.Server
+	ln  net.Listener
 }
 
 func New(opts Options) *Server {
@@ -161,7 +162,7 @@ func (s *Server) Start() error {
 		ReadHeaderTimeout: 30 * time.Second,
 		ErrorLog:          log.New(tlsNoiseFilter{}, "", 0),
 	}
-	s.srv = srv
+	s.srv, s.ln = srv, ln
 	go func() {
 		if err := srv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("proxy stopped: %v", err)
@@ -173,12 +174,15 @@ func (s *Server) Start() error {
 
 func (s *Server) Stop() {
 	s.mu.Lock()
-	srv := s.srv
-	s.srv = nil
+	srv, ln := s.srv, s.ln
+	s.srv, s.ln = nil, nil
 	s.mu.Unlock()
 	if srv == nil {
 		return
 	}
+	// Shutdown only closes listeners Serve has registered; if the serving
+	// goroutine hasn't got that far, the port would stay bound until it does.
+	defer ln.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
