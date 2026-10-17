@@ -1,5 +1,6 @@
 # Build output
 /dist
+/hoststray.exe
 *.syso
 
 # Local data from running from source (the proxy CA and its private key)
