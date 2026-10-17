@@ -7,7 +7,7 @@ what the app does.
 
 Hosts Tray was rewritten from Electron to Go (branch `go-rewrite`). The macOS
 version is **done and tested**: unit and integration tests, the real tray menu,
-editors in a browser, MCP with Claude Code, password prompts, CA trust,
+editors in a browser, agent access, password prompts, CA trust,
 auto-update (including refusing badly signed updates), the signed and
 notarized `.pkg` installer.
 
@@ -39,7 +39,7 @@ folder:
 $env:HOSTS_PATH = "$env:TEMP\hosts-test"; copy C:\Windows\System32\drivers\etc\hosts $env:HOSTS_PATH
 $env:HOSTSTRAY_DATA_DIR = "$env:TEMP\hoststray-test"
 $env:PORT = "8443"; $env:HOSTSTRAY_ADMIN_PORT = "47999"
-.\hoststray.exe          # or --headless (no tray; editors, MCP, proxy still work)
+.\hoststray.exe          # or --headless (no tray; editors, API, proxy still work)
 ```
 
 A copy in `%TEMP%` is writable, so it **won't** exercise UAC. To test
@@ -87,8 +87,8 @@ Other things to watch:
 5. **Edit hosts…** and **Edit proxy routes…** open in the browser; saving
    works; route changes apply without restarting the proxy.
 6. Settings → **Launch at login**, sign out and back in, and it starts.
-7. MCP: `claude mcp add --transport http hoststray http://127.0.0.1:47443/mcp`,
-   then have Claude call `get_status` and `set_hosts_group`.
+7. Agents: Settings → **Install agent skill**, then have Claude read the hosts
+   status and switch a group (MCP was removed in favour of the skill + API).
 8. Auto-update against a local feed (below): old exe → dialog → Restart now →
    new version runs (`/health` shows the new version) and `.old` is cleaned up
    on the next start.

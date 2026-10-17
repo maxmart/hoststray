@@ -1,5 +1,5 @@
 // Hosts Tray: toggles hosts file groups and runs a local HTTPS dev proxy, from
-// a tray icon. Agents can drive it over MCP at http://127.0.0.1:47443/mcp.
+// a tray icon. Agents drive it over the local HTTP API (internal/app/skill).
 package main
 
 // Windows needs an icon and a manifest (DPI awareness, common controls v6)
@@ -28,7 +28,7 @@ import (
 var version = "dev" // set with -ldflags "-X main.version=..."
 
 func main() {
-	headless := flag.Bool("headless", false, "run without a tray icon (editors and MCP still served)")
+	headless := flag.Bool("headless", false, "run without a tray icon (editors and API still served)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -58,7 +58,7 @@ func main() {
 		fatal(cfg, fmt.Sprintf("Hosts Tray could not open its local port %d.\n\n%v", cfg.AdminPort, err))
 	}
 	go a.Serve(ln)
-	log.Printf("Hosts Tray %s: hosts %s, data %s, MCP %s", version, cfg.HostsPath, cfg.DataDir, a.MCPURL())
+	log.Printf("Hosts Tray %s: hosts %s, data %s, API %s", version, cfg.HostsPath, cfg.DataDir, a.BaseURL())
 
 	a.RestoreProxy()
 	a.StartUpdateChecks()

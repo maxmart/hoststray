@@ -19,7 +19,6 @@ import (
 
 	"github.com/maxmart/hoststray/internal/hosts"
 	"github.com/maxmart/hoststray/internal/proxyconf"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const hostsText = "127.0.0.1 localhost\n#==== Staging\n127.0.0.1  app.example.com\n#====\n#==== Demo\n#127.0.0.1  demo.example.com\n#====\n"
@@ -139,8 +138,8 @@ func TestLocalOnly(t *testing.T) {
 	if code, _ := e.do(t, "POST", "/api/hosts", map[string]any{}, map[string]string{"Origin": "https://evil.example.com", "X-Hoststray-Token": tok}); code != 403 {
 		t.Fatalf("foreign origin: %d", code)
 	}
-	if code, _ := e.do(t, "POST", "/mcp", map[string]any{}, map[string]string{"Origin": "https://evil.example.com"}); code != 403 {
-		t.Fatalf("foreign origin on mcp: %d", code)
+	if code, _ := e.do(t, "POST", "/api/group", map[string]any{"name": "Demo", "enabled": true}, map[string]string{"Origin": "https://evil.example.com", "X-Hoststray-Token": tok}); code != 403 {
+		t.Fatalf("foreign origin on group: %d", code)
 	}
 	if code, _ := e.do(t, "POST", "/api/hosts", map[string]any{}, map[string]string{"Sec-Fetch-Site": "cross-site", "X-Hoststray-Token": tok}); code != 403 {
 		t.Fatalf("cross-site fetch: %d", code)
@@ -209,69 +208,83 @@ func TestProxyConfLiveReload(t *testing.T) {
 	}
 }
 
-func TestMCP(t *testing.T) {
+func TestAgentAPI(t *testing.T) {
 	e := setup(t)
-	ctx := context.Background()
-	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
-	cs, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: e.base + "/mcp"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cs.Close()
 
-	tools, err := cs.ListTools(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+	// Agents read their own token from disk; it is not the editors' token and
+	// can't reach the editing endpoints.
+	b, err := os.ReadFile(e.app.TokenPath())
+	if err != nil || len(b) < 32 || string(b) == e.app.Token() {
+		t.Fatalf("token file: %q %v", b, err)
 	}
-	var names []string
-	for _, tl := range tools.Tools {
-		names = append(names, tl.Name)
-	}
-	if strings.Join(names, ",") != "get_status,set_hosts_group,set_proxy" {
-		t.Fatalf("tools: %v", names)
-	}
-
-	call := func(name string, args map[string]any) map[string]any {
-		t.Helper()
-		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
-		if err != nil {
-			t.Fatal(err)
+	tok := map[string]string{"X-Hoststray-Token": string(b)}
+	for _, ep := range []string{"GET /api/hosts", "POST /api/hosts", "GET /api/proxy", "POST /api/proxy"} {
+		method, path, _ := strings.Cut(ep, " ")
+		if code, _ := e.do(t, method, path, map[string]any{}, tok); code != 401 {
+			t.Fatalf("agent token on %s: %d", ep, code)
 		}
-		if res.IsError {
-			return map[string]any{"error": res.Content[0].(*mcp.TextContent).Text}
-		}
-		b, _ := json.Marshal(res.StructuredContent)
-		var m map[string]any
-		json.Unmarshal(b, &m)
-		return m
 	}
 
-	st := call("get_status", nil)
-	groups := st["groups"].([]any)
-	if len(groups) != 2 || groups[1].(map[string]any)["enabled"] != false {
-		t.Fatalf("status: %v", st)
+	code, skill := e.do(t, "GET", "/SKILL.md", nil, nil)
+	if code != 200 || !strings.Contains(string(skill), e.base+"/api/group") ||
+		!strings.Contains(string(skill), filepath.ToSlash(e.app.TokenPath())) || strings.Contains(string(skill), "{{") {
+		t.Fatalf("skill: %d\n%s", code, skill)
 	}
-	if r := call("set_hosts_group", map[string]any{"name": "Demo", "enabled": true}); r["enabled"] != true {
-		t.Fatalf("set group: %v", r)
+
+	if code, _ := e.do(t, "GET", "/api/status", nil, nil); code != 401 {
+		t.Fatalf("status without token: %d", code)
+	}
+	code, b = e.do(t, "GET", "/api/status", nil, tok)
+	var st Status
+	json.Unmarshal(b, &st)
+	if code != 200 || len(st.Groups) != 2 || st.Groups[1].Enabled {
+		t.Fatalf("status: %d %s", code, b)
+	}
+
+	code, b = e.do(t, "POST", "/api/group", map[string]any{"name": "Demo", "enabled": true}, tok)
+	if code != 200 || !strings.Contains(string(b), `"enabled":true`) {
+		t.Fatalf("set group: %d %s", code, b)
 	}
 	if b, _ := os.ReadFile(e.hosts); !strings.Contains(string(b), "\n127.0.0.1  demo.example.com\n") {
 		t.Fatalf("hosts not updated:\n%s", b)
 	}
-	if r := call("set_hosts_group", map[string]any{"name": "Nope", "enabled": true}); !strings.Contains(fmt.Sprint(r["error"]), "no such group") {
-		t.Fatalf("missing group: %v", r)
+	if code, b := e.do(t, "POST", "/api/group", map[string]any{"name": "Nope", "enabled": true}, tok); code != 404 {
+		t.Fatalf("missing group: %d %s", code, b)
 	}
-	if r := call("set_hosts_group", map[string]any{"enabled": true}); r["error"] == nil {
-		// name is required by the schema
-		t.Fatalf("missing name accepted: %v", r)
+	if code, _ := e.do(t, "POST", "/api/group", map[string]any{"enabled": true}, tok); code != 400 {
+		t.Fatalf("missing name: %d", code)
 	}
-	os.WriteFile(e.app.ProxyConfPath(), []byte(fmt.Sprintf("* -> :%d", backend(t, "mcp"))), 0o644)
-	if r := call("set_proxy", map[string]any{"enabled": true}); r["running"] != true {
-		t.Fatalf("set proxy: %v", r)
+	if code, _ := e.do(t, "POST", "/api/group", map[string]any{"name": "Demo"}, tok); code != 400 {
+		t.Fatalf("missing enabled: %d", code)
 	}
-	if got := e.viaProxy(t, "x.test"); got != "mcp" {
-		t.Fatalf("proxy via mcp: %q", got)
+
+	os.WriteFile(e.app.ProxyConfPath(), []byte(fmt.Sprintf("* -> :%d", backend(t, "agent"))), 0o644)
+	code, b = e.do(t, "POST", "/api/proxy/enabled", map[string]any{"enabled": true}, tok)
+	if code != 200 || !strings.Contains(string(b), `"running":true`) {
+		t.Fatalf("start proxy: %d %s", code, b)
 	}
-	if r := call("set_proxy", map[string]any{"enabled": false}); r["running"] != false {
-		t.Fatalf("stop proxy: %v", r)
+	if got := e.viaProxy(t, "x.test"); got != "agent" {
+		t.Fatalf("proxy: %q", got)
+	}
+	code, b = e.do(t, "POST", "/api/proxy/enabled", map[string]any{"enabled": false}, tok)
+	if code != 200 || !strings.Contains(string(b), `"running":false`) {
+		t.Fatalf("stop proxy: %d %s", code, b)
+	}
+}
+
+func TestInstallSkill(t *testing.T) {
+	e := setup(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	path, err := e.app.InstallSkill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".claude", "skills", "hoststray", "SKILL.md"); path != want {
+		t.Fatalf("path %s, want %s", path, want)
+	}
+	if b, _ := os.ReadFile(path); string(b) != e.app.Skill() {
+		t.Fatal("installed skill differs")
 	}
 }

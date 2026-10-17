@@ -1,5 +1,5 @@
 // Package app holds Hosts Tray's state and the operations shared by the tray
-// menu, the browser editors and the MCP server.
+// menu, the browser editors and agents.
 package app
 
 import (
@@ -70,7 +70,8 @@ type App struct {
 	CA       *certs.Authority
 	proxy    *proxy.Server
 	confPath string
-	token    string
+	token    string // editors: full API
+	agentTok string // agents: status, groups, proxy on/off
 
 	mu       sync.Mutex // serializes hosts/proxy.conf writes and settings
 	settings Settings
@@ -100,7 +101,9 @@ func New(cfg Config) (*App, error) {
 	if t := os.Getenv("HOSTSTRAY_TOKEN"); len(t) >= 16 {
 		token = t // fixed token for automated testing of the editors
 	}
-	a := &App{cfg: cfg, CA: ca, confPath: confPath, token: token}
+	agentTok := make([]byte, 16)
+	rand.Read(agentTok)
+	a := &App{cfg: cfg, CA: ca, confPath: confPath, token: token, agentTok: hex.EncodeToString(agentTok)}
 	a.proxy = proxy.New(proxy.Options{CA: ca, ListenHost: cfg.ListenHost, Port: cfg.ProxyPort, Timeout: cfg.Timeout})
 	a.loadSettings()
 	return a, nil
@@ -207,6 +210,9 @@ func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
 	}
 	res := a.SaveHosts(doc)
 	if !res.OK {
+		if res.Error == platform.ErrCancelled.Error() {
+			return res, platform.ErrCancelled
+		}
 		return res, errors.New(res.Error)
 	}
 	return res, nil

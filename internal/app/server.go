@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/maxmart/hoststray/internal/hosts"
+	"github.com/maxmart/hoststray/internal/platform"
 	"github.com/maxmart/hoststray/internal/proxyconf"
 )
 
@@ -19,7 +21,7 @@ var webFS embed.FS
 
 const maxBody = 4 << 20
 
-// Handler serves the editors, their API and the MCP endpoint. It is meant for
+// Handler serves the editors and the API they and agents use. It is meant for
 // 127.0.0.1 only and rejects requests whose Host or Origin isn't local, so
 // websites can't reach it (cross-site requests or DNS rebinding).
 func (a *App) Handler() http.Handler {
@@ -71,7 +73,65 @@ func (a *App) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, a.SaveProxyConf(&cfg))
 	}))
 
-	mux.Handle("/mcp", a.mcpHandler())
+	// For agents (see skill/SKILL.md).
+	mux.HandleFunc("GET /SKILL.md", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		io.WriteString(w, a.Skill())
+	})
+	mux.Handle("GET /api/status", a.agentAuthed(func(w http.ResponseWriter, r *http.Request) {
+		st, err := a.Status()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	}))
+	mux.Handle("POST /api/group", a.agentAuthed(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Name    string `json:"name"`
+			Enabled *bool  `json:"enabled"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		if in.Name == "" || in.Enabled == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need "name" and "enabled"`})
+			return
+		}
+		res, err := a.SetGroup(in.Name, *in.Enabled)
+		switch {
+		case errors.Is(err, ErrNoGroup):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		case errors.Is(err, platform.ErrCancelled):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case err != nil:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"name": in.Name, "enabled": *in.Enabled, "elevated": res.Elevated})
+		}
+	}))
+	mux.Handle("POST /api/proxy/enabled", a.agentAuthed(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		if in.Enabled == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need "enabled"`})
+			return
+		}
+		if err := a.SetProxy(*in.Enabled); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		st, err := a.Status()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, st.Proxy)
+	}))
 
 	return a.localOnly(http.NewCrossOriginProtection().Handler(mux))
 }
@@ -110,13 +170,23 @@ func (a *App) localOnly(next http.Handler) http.Handler {
 }
 
 // authed requires the per-launch token the tray passes to the editor pages.
-func (a *App) authed(f http.HandlerFunc) http.Handler {
+func (a *App) authed(f http.HandlerFunc) http.Handler { return a.requireToken(f, a.token) }
+
+// agentAuthed also accepts the agent token from the data folder. It guards
+// only switching existing groups and the proxy: adding hostnames or routes
+// stays with the user in the editors.
+func (a *App) agentAuthed(f http.HandlerFunc) http.Handler { return a.requireToken(f, a.token, a.agentTok) }
+
+func (a *App) requireToken(f http.HandlerFunc, tokens ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Hoststray-Token")), []byte(a.token)) != 1 {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			return
+		got := []byte(r.Header.Get("X-Hoststray-Token"))
+		for _, t := range tokens {
+			if subtle.ConstantTimeCompare(got, []byte(t)) == 1 {
+				f(w, r)
+				return
+			}
 		}
-		f(w, r)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	})
 }
 
@@ -140,15 +210,21 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 // EditorURL is the browser URL for an editor page ("hosts" or "routes").
 func (a *App) EditorURL(page string) string {
-	return "http://127.0.0.1:" + strconv.Itoa(a.cfg.AdminPort) + "/" + page + "#token=" + a.token
+	return a.BaseURL() + "/" + page + "#token=" + a.token
 }
 
-// MCPURL is the endpoint agents connect to.
-func (a *App) MCPURL() string { return "http://127.0.0.1:" + strconv.Itoa(a.cfg.AdminPort) + "/mcp" }
-
 // Listen binds the admin server. It fails if another instance is running.
+// Once bound, it writes the API token for agents; doing it only then keeps a
+// second instance from overwriting the running one's token.
 func (a *App) Listen() (net.Listener, error) {
-	return net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(a.cfg.AdminPort))
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(a.cfg.AdminPort))
+	if err != nil {
+		return nil, err
+	}
+	if err := a.writeToken(); err != nil {
+		log.Printf("could not write API token: %v", err)
+	}
+	return ln, nil
 }
 
 func (a *App) Serve(ln net.Listener) {

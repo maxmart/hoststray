@@ -4,7 +4,7 @@ A small tray app for developers who point real domain names at local services.
 It toggles groups of entries in your hosts file and runs a local HTTPS proxy
 with auto-generated certificates, so `https://app.example.com` can hit your
 dev server on `localhost:3000` without browser warnings. Coding agents can
-drive it too, through its built-in MCP server.
+drive it too, through a skill file and its local API.
 
 macOS and Windows. A single native binary written in Go: the macOS download
 is under 9 MB.
@@ -29,7 +29,7 @@ and running a reverse proxy. Hosts Tray wraps all three in a tray icon.
 - **Route config.** Send web traffic and websocket upgrades to different ports
   by path prefix. Changes apply as soon as you save.
 - **Trusted CA.** Offers to trust the generated root CA for your user account.
-- **MCP server.** Agents can list groups and switch groups and the proxy.
+- **Agent skill.** Agents can list groups and switch groups and the proxy.
 - **No password prompts, if you want.** One opt-in setting lets your account
   edit the hosts file, so toggles don't ask for a password.
 - **Auto-update** from GitHub Releases.
@@ -113,26 +113,29 @@ https://*/api -> 10.0.0.5:8080 # a path prefix to another host
   Upgrades that match no websocket route use the web routes.
 - When several routes match, the longest path prefix wins. `*` is the catch-all.
 
-## MCP
+## Agents
 
-The tray app serves MCP at `http://127.0.0.1:47443/mcp`. Add it to Claude Code
-with **Settings → Copy MCP setup command**, or:
+Coding agents drive Hosts Tray over its local HTTP API, guided by a skill
+file. Install it for Claude Code with **Settings → Install agent skill**,
+which writes `~/.claude/skills/hoststray/SKILL.md`. Other agents can read the
+same file from `http://127.0.0.1:47443/SKILL.md`. No MCP or other setup is
+needed.
 
-```sh
-claude mcp add --transport http hoststray http://127.0.0.1:47443/mcp
-```
+The skill tells the agent to read a token from `token` in the data folder and
+call these endpoints with it:
 
-| Tool | What it does |
+| Endpoint | What it does |
 | --- | --- |
-| `get_status` | Groups with their entries, proxy state, port, CA trust, routes |
-| `set_hosts_group` | Switch an existing group on or off |
-| `set_proxy` | Start or stop the proxy |
+| `GET /api/status` | Groups with their entries, proxy state, port, CA trust, routes |
+| `POST /api/group` `{"name","enabled"}` | Switch an existing group on or off |
+| `POST /api/proxy/enabled` `{"enabled"}` | Start or stop the proxy |
 
-Agents can't add hostnames, groups or routes, or trust the CA. Pointing a real
-domain at localhost behind a trusted CA lets whoever controls it intercept
-that site's traffic, so those stay with you in the editors. The server only
-answers on `127.0.0.1` and rejects requests from web pages, so websites can't
-reach it.
+The agent token is new on each launch and only works for those three. The
+editors use a separate token that never touches disk, so agents can't add
+hostnames, groups or routes, or trust the CA. Pointing a real domain at
+localhost behind a trusted CA lets whoever controls it intercept that site's
+traffic, so those stay with you in the editors. The server only answers on
+`127.0.0.1` and rejects requests from web pages, so websites can't reach it.
 
 ## Updates
 
@@ -159,11 +162,11 @@ Settings, `proxy.conf`, the CA (`_certs/`) and `hoststray.log` live in
 | `PROXY_TIMEOUT` | `300` | Upstream response timeout in seconds |
 | `HOSTS_PATH` | system hosts file | Work on a copy instead; opens the editor at launch |
 | `OPEN_PROXY_EDITOR` | unset | Open the routes editor at launch |
-| `HOSTSTRAY_ADMIN_PORT` | `47443` | Port for the editors and MCP |
+| `HOSTSTRAY_ADMIN_PORT` | `47443` | Port for the editors and API |
 | `HOSTSTRAY_DATA_DIR` | see above | Data folder |
 | `HOSTSTRAY_UPDATE_URL` | GitHub latest release | Release feed, for testing updates |
 
-`--headless` runs without a tray icon (editors, MCP and proxy still work).
+`--headless` runs without a tray icon (editors, API and proxy still work).
 
 ## Development
 

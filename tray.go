@@ -170,11 +170,14 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	})
 	pw := settings.AddSubMenuItemCheckbox("Change hosts without password", "", s.Passwordless)
 	on(ctx, pw, func() { a.SetHostsPasswordless(!s.Passwordless) })
-	on(ctx, settings.AddSubMenuItem("Copy MCP setup command", "For Claude Code; other agents use the URL "+a.MCPURL()), func() {
-		cmd := "claude mcp add --transport http hoststray " + a.MCPURL()
-		if err := platform.CopyToClipboard(cmd); err != nil {
-			platform.Alert("Hosts Tray", "Add this MCP server to your agent:\n\n"+a.MCPURL())
+	on(ctx, settings.AddSubMenuItem("Install agent skill", "For Claude Code; other agents can read "+a.BaseURL()+"/SKILL.md"), func() {
+		path, err := a.InstallSkill()
+		if err != nil {
+			platform.Alert("Hosts Tray", "Could not install the skill.\n\n"+err.Error())
+			return
 		}
+		platform.Alert("Hosts Tray", "Installed the Hosts Tray skill for Claude Code:\n\n"+path+
+			"\n\nOther agents can read it from "+a.BaseURL()+"/SKILL.md")
 	})
 	on(ctx, settings.AddSubMenuItem("Check for updates", ""), func() { a.CheckForUpdates(true) })
 	on(ctx, settings.AddSubMenuItem("Show data folder", a.Config().DataDir), func() {
