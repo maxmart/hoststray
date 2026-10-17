@@ -4,7 +4,7 @@
 #
 #   VERSION=0.11.0 ./scripts/build-mac.sh
 #
-# Credentials come from the environment or ../.env (see ../.env.example):
+# Credentials come from the environment or .env (see .env.example):
 #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID   notarization
 #   APPLE_SIGN_IDENTITY        default: the keychain's "Developer ID Application" for APPLE_TEAM_ID
 #   APPLE_INSTALLER_IDENTITY   optional; builds the .pkg
@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-[ -f ../.env ] && { set -a; source ../.env; set +a; }
+[ -f .env ] && { set -a; source .env; set +a; }
 VERSION="${VERSION:-0.11.0}"
 OUT="${OUT:-dist}"
 APP="$OUT/Hosts Tray.app"

@@ -1,5 +1,5 @@
-// Stands in for the Electron preload: exposes window.hostsAPI and
-// window.proxyAPI backed by the local Hosts Tray server. The access token
+// Exposes window.hostsAPI and window.proxyAPI to the editor pages, backed
+// by the local Hosts Tray server. The access token
 // arrives in the URL fragment (never sent to servers or logged) and is kept
 // for this tab only.
 (function () {

@@ -9,8 +9,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/maxmart/hoststray/internal/difftest"
 )
 
 func pool(a *Authority) *x509.CertPool {
@@ -96,7 +94,9 @@ func TestInvalidNames(t *testing.T) {
 // TestLegacyCA loads the CA created by the Electron version (node-forge, RSA
 // PKCS#1) and checks that its non-compliant leaf certs get replaced.
 func TestLegacyCA(t *testing.T) {
-	src := filepath.Join(difftest.RepoRoot(), "_certs")
+	// _certs/ in the repo root is where the Electron version kept its CA
+	// (gitignored; present on machines that ran it from source).
+	src := filepath.Join("..", "..", "_certs")
 	if _, err := os.Stat(filepath.Join(src, caName+".crt")); err != nil {
 		t.Skip("no legacy _certs in repo")
 	}

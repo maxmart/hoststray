@@ -56,7 +56,7 @@ func main() {
 
 	a.RestoreProxy()
 	a.StartUpdateChecks()
-	// Like the Electron version: open the editors straight away in test setups.
+	// Working on a hosts copy is a test setup: show the editor straight away.
 	if os.Getenv("HOSTS_PATH") != "" && !*headless {
 		platform.OpenURL(a.EditorURL("hosts"))
 	}

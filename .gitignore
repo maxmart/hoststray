@@ -1,10 +1,9 @@
-/node_modules
+# Build output
 /dist
-/_certs
+*.syso
 
-out/
-secret.txt
-yarn-error.log
+# Local data from running from source (the proxy CA and its private key)
+/_certs
 
 # Signing / publishing credentials — never commit these
 .env

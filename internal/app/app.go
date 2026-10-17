@@ -42,7 +42,7 @@ type Config struct {
 	Interactive bool
 }
 
-// ConfigFromEnv reads the same environment variables as the Electron version.
+// ConfigFromEnv reads the configuration from environment variables.
 func ConfigFromEnv(version string) Config {
 	c := Config{
 		Version:     version,
