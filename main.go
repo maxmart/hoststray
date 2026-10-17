@@ -2,6 +2,12 @@
 // a tray icon. Agents can drive it over MCP at http://127.0.0.1:47443/mcp.
 package main
 
+// Windows needs an icon and a manifest (DPI awareness, common controls v6)
+// linked in as a resource; without the manifest, dialogs fall back to the
+// old MessageBox look. Release builds do this in scripts/build-release.sh;
+// for a local build run `go generate ./...` once first.
+//go:generate go run github.com/tc-hib/go-winres@v0.3.3 simply --icon scripts/icon.png --manifest gui --product-name "Hosts Tray" --file-description "Hosts Tray" --original-filename hoststray.exe --arch amd64,arm64
+
 import (
 	"flag"
 	"fmt"
@@ -87,7 +93,18 @@ func setupLog(dir string) {
 	if err != nil {
 		return
 	}
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	log.SetOutput(io.MultiWriter(bestEffort{os.Stderr}, f))
+}
+
+// bestEffort swallows its writer's errors. A GUI build has no console, so on
+// Windows every write to stderr fails, and io.MultiWriter stops at the first
+// error — which would leave the log file empty exactly when it is the only
+// place to look.
+type bestEffort struct{ w io.Writer }
+
+func (b bestEffort) Write(p []byte) (int, error) {
+	b.w.Write(p)
+	return len(p), nil
 }
 
 func alreadyRunning(port int) bool {
