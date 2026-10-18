@@ -39,8 +39,16 @@ type tray struct {
 
 func runTray(a *app.App) {
 	t := &tray{app: a}
-	a.SetQuit(systray.Quit)
+	a.SetQuit(t.quit)
 	systray.Run(t.onReady, a.Shutdown)
+}
+
+// quit cleans up before telling the tray to exit: on macOS the process ends
+// before systray's exit callback gets to run, which left the agent token file
+// behind.
+func (t *tray) quit() {
+	t.app.Shutdown()
+	systray.Quit()
 }
 
 func (t *tray) onReady() {
@@ -193,5 +201,5 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	})
 	systray.AddSeparator()
 
-	on(ctx, systray.AddMenuItem("Quit", ""), systray.Quit)
+	on(ctx, systray.AddMenuItem("Quit", ""), t.quit)
 }
