@@ -1,39 +1,103 @@
-# Hosts Tray
+<p align="center">
+  <img src="scripts/icon.png" width="96" alt="">
+</p>
 
-A small tray app for developers who point real domain names at local services.
-It toggles groups of entries in your hosts file and runs a local HTTPS proxy
-with auto-generated certificates, so `https://app.example.com` can hit your
-dev server on `localhost:3000` without browser warnings. Coding agents can
-drive it too, through a skill file and its local API.
+<h1 align="center">Hosts Tray</h1>
 
-macOS and Windows. A single native binary written in Go: the macOS download
-is under 9 MB.
+<p align="center">
+  <b>Real domains, local servers, valid HTTPS. From your menu bar.</b><br>
+  Toggle groups of hosts file entries and run a local HTTPS proxy with<br>
+  auto-generated certificates, so <code>https://app.example.com</code> hits your dev server on <code>localhost:3000</code>.
+</p>
+
+<p align="center">
+  <a href="https://github.com/maxmart/hoststray/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/maxmart/hoststray?color=1f9d55"></a>
+  <a href="https://github.com/maxmart/hoststray/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/maxmart/hoststray/total?color=1f9d55"></a>
+  <img alt="macOS and Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-555">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/maxmart/hoststray?color=555"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/maxmart/hoststray/releases/latest"><b>Download for macOS</b></a> ·
+  <a href="https://github.com/maxmart/hoststray/releases/latest"><b>Download for Windows</b></a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
+    <img src="docs/screenshots/overview-light.png" width="820" alt="The Hosts Tray console: the HTTPS proxy switch and three hosts groups">
+  </picture>
+</p>
+
+<!-- TODO: tray menu GIF (tick a group, open https://shop.example.com, green padlock) -->
 
 ## Why
 
-Testing cookies, CORS, OAuth callbacks, or service workers usually needs the
-real hostname over HTTPS. SwitchHosts is great but does not have an HTTPS
-proxy built in.
+Cookies, CORS, OAuth callbacks and service workers often only behave on the
+real hostname over HTTPS. Getting there by hand means editing an admin-owned
+hosts file, generating and trusting certificates, and running a reverse proxy.
+Hosts Tray does all three from a tray icon: one native binary, under 9 MB on
+macOS, no config files to write.
 
-Doing that by hand means editing an admin-owned hosts file, generating certs,
-and running a reverse proxy. Hosts Tray wraps all three in a tray icon.
+## Quick start
+
+1. **Install** the [latest release](https://github.com/maxmart/hoststray/releases/latest):
+   the `.pkg` on macOS, `Hosts-Tray-<version>-windows-amd64-setup.exe` on Windows.
+2. **Add a group** in **Open Hosts Tray… → Hosts**, or straight in your hosts file:
+   ```
+   #==== Shop
+   127.0.0.1  shop.example.com
+   #====
+   ```
+3. **Turn on the proxy** from the tray menu and trust the certificate when asked.
+   `https://shop.example.com` now reaches `localhost:80`; change the target
+   under **Proxy routes**.
+
+## How it works
+
+```mermaid
+flowchart LR
+    B["Browser<br/>https://shop.example.com"] -- "hosts file:<br/>127.0.0.1" --> P["Hosts Tray :443<br/>certificate from a local CA"]
+    P -- "/" --> A["localhost:3000"]
+    P -- "/api" --> C["localhost:8080"]
+    P -- "wss /socket" --> D["localhost:3001"]
+```
+
+The hosts file points the name at your machine, the proxy answers with a
+certificate for that name signed by a CA your computer trusts, and the route
+table decides which local port gets the request.
 
 ## Features
 
-- **Hosts groups.** Mark sections of your hosts file with `#==== Name` and
-  toggle each group on or off from the tray menu.
-- **Console.** One browser page for the proxy, hosts groups, proxy routes and
-  settings, opened from the tray menu.
-- **HTTPS proxy.** Listens on port 443, issues a certificate per hostname on
-  the fly from a local CA, and forwards to whatever you configure, websockets
-  included.
-- **Route config.** Send web traffic and websocket upgrades to different ports
-  by path prefix. Changes apply as soon as you save.
-- **Trusted CA.** Offers to trust the generated root CA for your user account.
-- **Agent skill.** Agents can list groups and switch groups and the proxy.
-- **No password prompts, if you want.** One opt-in setting lets your account
-  edit the hosts file, so toggles don't ask for a password.
-- **Auto-update** from GitHub Releases.
+- 🗂️ **Hosts groups.** Sections of your hosts file, switched on and off from the tray menu.
+- 🔒 **HTTPS proxy.** A certificate per hostname on the fly, websockets included.
+- 🧭 **Routes.** Send paths and websocket upgrades to different ports; changes apply on save.
+- 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
+- 🔑 **No password prompts, if you want.** One opt-in setting and toggles stop asking.
+- 📦 **Move to another computer.** Export and import groups and routes as one text file.
+- 🤖 **Agent skill.** Claude Code and other coding agents can switch groups and the proxy.
+- 🔄 **Auto-update** from GitHub Releases, checksum-verified.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hosts-dark.png">
+    <img src="docs/screenshots/hosts-light.png" width="49%" alt="The hosts editor with three groups">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/routes-dark.png">
+    <img src="docs/screenshots/routes-light.png" width="49%" alt="The proxy routes editor">
+  </picture>
+</p>
+
+## Compared to
+
+| | SwitchHosts | mkcert | Caddy by hand | **Hosts Tray** |
+| --- | :---: | :---: | :---: | :---: |
+| Toggle hosts groups from a menu | ✅ | | | ✅ |
+| Trusted HTTPS certificates | | ✅ one command per name | ✅ `tls internal` | ✅ automatic per name |
+| Reverse proxy and websockets | | | ✅ | ✅ |
+| No config file to write | ✅ | ✅ | | ✅ |
+| Coding agents can drive it | | | | ✅ |
 
 ## Install
 
@@ -46,12 +110,16 @@ Download from the [latest release](https://github.com/maxmart/hoststray/releases
   admin rights, with a Start menu entry and an uninstaller. The bare
   `hoststray-<version>-windows-amd64.exe` also runs from anywhere.
 
+The app lives in the menu bar (macOS) or the notification area (Windows);
+there's no window or Dock icon.
+
 Uninstalling on Windows asks whether to also remove settings and
 certificates; yes also stops Windows trusting the Hosts Tray CA and removes
 password-free hosts access. Hosts file entries are always kept.
 
-The app lives in the menu bar (macOS) or the notification area (Windows);
-there's no window or Dock icon.
+> [!NOTE]
+> Coming from the Electron version (0.9.x)? It can't update itself to this
+> one; download it once by hand and auto-update takes over from there.
 
 ## Hosts file groups
 
@@ -71,16 +139,13 @@ an empty one closes the group. Everything else in the file is left untouched.
 
 Each group appears as a checkbox in the tray menu. Unchecking comments out
 every entry in the group; checking uncomments them. A group counts as enabled
-only when all of its entries are.
+only when all of its entries are. Only IPv4 entries are managed; comments,
+blank lines and anything else are preserved byte for byte.
 
-Only IPv4 entries are managed. Comments, blank lines, and anything else are
-preserved byte for byte when the file is rewritten.
-
-**Open Hosts Tray…** in the tray menu opens the console in your browser:
-an overview with the proxy and group switches, the hosts editor, the proxy
-routes editor and settings. **Edit hosts…** and **Edit proxy routes…** open
-it at those sections. It's served by the app on `127.0.0.1` and only works
-through the links from the tray menu.
+**Open Hosts Tray…** in the tray menu opens the console in your browser;
+**Edit hosts…** and **Edit proxy routes…** open it at those sections. It's
+served by the app on `127.0.0.1` and only works through the links from the
+tray menu.
 
 ### Passwords
 
@@ -147,11 +212,14 @@ password prompt. Agents can't import.
 
 ## Agents
 
+> [!TIP]
+> **Settings → Install agent skill** in the tray menu, then ask Claude Code
+> something like *"turn on the Shop hosts group and the proxy"*.
+
 Coding agents drive Hosts Tray over its local HTTP API, guided by a skill
-file. Install it for Claude Code with **Settings → Install agent skill**,
-which writes `~/.claude/skills/hoststray/SKILL.md`. Other agents can read the
-same file from `http://127.0.0.1:47443/SKILL.md`. No MCP or other setup is
-needed.
+file. The menu item writes it to `~/.claude/skills/hoststray/SKILL.md`. Other
+agents can read the same file from `http://127.0.0.1:47443/SKILL.md`. No MCP
+or other setup is needed.
 
 The skill tells the agent to read a token from `token` in the data folder and
 call these endpoints with it:
@@ -184,7 +252,8 @@ Settings, `proxy.conf`, the CA (`_certs/`) and `hoststray.log` live in
 `~/Library/Application Support/hoststray` (macOS) or `%AppData%\hoststray`
 (Windows). **Settings → Show data folder** opens it.
 
-## Environment variables
+<details>
+<summary><b>Environment variables</b></summary>
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -200,7 +269,10 @@ Settings, `proxy.conf`, the CA (`_certs/`) and `hoststray.log` live in
 
 `--headless` runs without a tray icon (console, API and proxy still work).
 
-## Development
+</details>
+
+<details>
+<summary><b>Development</b></summary>
 
 Needs Go 1.27 or newer; on macOS, Xcode command line tools (the tray uses cgo).
 
@@ -223,7 +295,10 @@ Two opt-in macOS test suites need someone at the screen:
   password prompts (elevated write, password-free on/off, CA trust) against a
   throwaway file and CA. You type your password five times.
 
-## Releasing
+</details>
+
+<details>
+<summary><b>Releasing</b></summary>
 
 ```sh
 VERSION=0.11.0 ./scripts/build-release.sh   # build everything into dist/
@@ -245,6 +320,8 @@ it in. Without it, `build-mac.sh` builds an ad-hoc signed app for local use;
 
 The Windows executables and installers are not code-signed yet, so
 SmartScreen warns on first run.
+
+</details>
 
 ## License
 
