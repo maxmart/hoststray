@@ -12,7 +12,6 @@
 
 <p align="center">
   <a href="https://github.com/maxmart/hoststray/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/maxmart/hoststray?color=1f9d55"></a>
-  <a href="https://github.com/maxmart/hoststray/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/maxmart/hoststray/total?color=1f9d55"></a>
   <img alt="macOS and Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-555">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/maxmart/hoststray?color=555"></a>
 </p>
