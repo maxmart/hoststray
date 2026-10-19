@@ -116,10 +116,6 @@ Uninstalling on Windows asks whether to also remove settings and
 certificates; yes also stops Windows trusting the Hosts Tray CA and removes
 password-free hosts access. Hosts file entries are always kept.
 
-> [!NOTE]
-> Coming from the Electron version (0.9.x)? It can't update itself to this
-> one; download it once by hand and auto-update takes over from there.
-
 ## Hosts file groups
 
 Groups are delimited by `#====` markers. An opening marker carries the name,
