@@ -33,6 +33,8 @@ type tray struct {
 	mu      sync.Mutex
 	state   *menuState
 	cancel  context.CancelFunc
+	proxy   *systray.MenuItem // the switches, for in-place updates
+	groups  map[string]*systray.MenuItem
 	trusted bool
 	checked time.Time // when trust was last checked
 }
@@ -94,6 +96,13 @@ func (t *tray) refresh(recheckTrust bool) {
 	if t.state != nil && reflect.DeepEqual(*t.state, *s) {
 		return
 	}
+	// Only switches changed: update them in place. Rebuilding an open menu
+	// makes it flicker, and macOS closes a menu that is briefly empty.
+	if t.state != nil && reflect.DeepEqual(structure(t.state), structure(s)) {
+		t.state = s
+		t.update(s)
+		return
+	}
 	t.state = s
 	if t.cancel != nil {
 		t.cancel() // stop listening on the previous menu's items
@@ -101,6 +110,52 @@ func (t *tray) refresh(recheckTrust bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.cancel = cancel
 	t.build(ctx, s)
+}
+
+// structure is the menu state without the switch positions: if it is
+// unchanged, the menu can be updated in place instead of rebuilt.
+func structure(s *menuState) menuState {
+	c := *s
+	c.ProxyOn = false
+	c.Groups = make([]hosts.Group, len(s.Groups))
+	for i, g := range s.Groups {
+		g.Enabled = false
+		g.Entries = append([]hosts.Entry(nil), g.Entries...)
+		for j := range g.Entries {
+			g.Entries[j].Enabled = false
+		}
+		c.Groups[i] = g
+	}
+	return c
+}
+
+// update moves the switches to the new state without rebuilding the menu.
+func (t *tray) update(s *menuState) {
+	setProxyIcon(s.ProxyOn)
+	items, on := []*systray.MenuItem{t.proxy}, []bool{s.ProxyOn}
+	for _, g := range s.Groups {
+		if item := t.groups[g.Name]; item != nil {
+			items, on = append(items, item), append(on, g.Enabled)
+		}
+	}
+	setSwitches(items, on)
+}
+
+func check(item *systray.MenuItem, on bool) {
+	if on {
+		item.Check()
+	} else {
+		item.Uncheck()
+	}
+}
+
+func setProxyIcon(on bool) {
+	systray.SetIcon(trayIcon(on))
+	if on {
+		systray.SetTooltip("Hosts Tray - Proxy ON")
+	} else {
+		systray.SetTooltip("Hosts Tray - Proxy OFF")
+	}
 }
 
 // on runs f in its own goroutine each time item is clicked, until ctx ends.
@@ -120,12 +175,7 @@ func on(ctx context.Context, item *systray.MenuItem, f func()) {
 func (t *tray) build(ctx context.Context, s *menuState) {
 	a := t.app
 	systray.ResetMenu()
-	systray.SetIcon(trayIcon(s.ProxyOn))
-	if s.ProxyOn {
-		systray.SetTooltip("Hosts Tray - Proxy ON")
-	} else {
-		systray.SetTooltip("Hosts Tray - Proxy OFF")
-	}
+	setProxyIcon(s.ProxyOn)
 
 	systray.AddMenuItem("Hosts Tray "+version, "").Disable()
 	if s.Update != "" {
@@ -143,6 +193,8 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	systray.AddSeparator()
 
 	proxyItem := systray.AddMenuItemCheckbox(fmt.Sprintf("HTTPS proxy on :%d", a.ProxyPort()), "", s.ProxyOn)
+	switches := []*systray.MenuItem{proxyItem}
+	t.proxy, t.groups = proxyItem, map[string]*systray.MenuItem{}
 	on(ctx, proxyItem, t.keepOpen(func() error {
 		err := a.SetProxy(!a.ProxyRunning())
 		if err != nil {
@@ -166,8 +218,12 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	for _, g := range s.Groups {
 		g := g
 		item := systray.AddMenuItemCheckbox(g.Name, fmt.Sprintf("%d entries", len(g.Entries)), g.Enabled)
+		switches = append(switches, item)
+		t.groups[g.Name] = item
 		on(ctx, item, t.keepOpen(func() error {
-			_, err := a.SetGroup(g.Name, !g.Enabled)
+			// The menu may have been updated in place since it was built, so
+			// flip the group's current state, not g.Enabled.
+			_, err := a.SetGroup(g.Name, !t.app.GroupEnabled(g.Name))
 			if err != nil {
 				log.Printf("toggle %q: %v", g.Name, err)
 			}
@@ -207,6 +263,7 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	systray.AddSeparator()
 
 	on(ctx, systray.AddMenuItem("Quit", ""), t.quit)
+	useSwitches(switches)
 }
 
 // keepOpen runs a switch from the menu and then reopens the menu, so several
@@ -215,7 +272,17 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 func (t *tray) keepOpen(f func() error) func() {
 	return func() {
 		start := time.Now()
-		if err := f(); err != nil || time.Since(start) > 2*time.Second {
+		if err := f(); err != nil {
+			// A switch flips as soon as it is clicked; put it back.
+			t.mu.Lock()
+			s := t.state
+			t.mu.Unlock()
+			if s != nil {
+				t.update(s)
+			}
+			return
+		}
+		if time.Since(start) > 2*time.Second {
 			return
 		}
 		t.refresh(false) // show the new state, not the one the menu was built with

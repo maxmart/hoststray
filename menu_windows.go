@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fyne.io/systray"
 	"os"
 	"runtime"
 	"sync"
@@ -104,4 +105,14 @@ func reopenMenu() {
 	menuReposition = true
 	menuMu.Unlock()
 	procPostMessageW.Call(hwnd, wmSystray, 0, wmRButtonUp)
+}
+
+// Switch rows are macOS-only; Windows menus keep checkmarks.
+func useSwitches([]*systray.MenuItem) {}
+
+// setSwitches shows the new states as checkmarks.
+func setSwitches(items []*systray.MenuItem, on []bool) {
+	for i, item := range items {
+		check(item, on[i])
+	}
 }

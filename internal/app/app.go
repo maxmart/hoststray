@@ -200,6 +200,20 @@ func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 
 var ErrNoGroup = errors.New("no such group")
 
+// GroupEnabled reports whether every entry of the named group is on.
+func (a *App) GroupEnabled(name string) bool {
+	groups, err := a.Groups()
+	if err != nil {
+		return false
+	}
+	for _, g := range groups {
+		if g.Name == name {
+			return g.Enabled
+		}
+	}
+	return false
+}
+
 // SetGroup turns every entry in an existing group on or off.
 func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
 	doc, err := a.LoadHosts()
