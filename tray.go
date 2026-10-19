@@ -53,6 +53,7 @@ func (t *tray) quit() {
 
 func (t *tray) onReady() {
 	systray.SetTooltip("Hosts Tray")
+	watchMenu()
 	t.refresh(true)
 	t.app.OnChange(func() { t.refresh(true) })
 
@@ -142,11 +143,13 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	systray.AddSeparator()
 
 	proxyItem := systray.AddMenuItemCheckbox(fmt.Sprintf("HTTPS proxy on :%d", a.ProxyPort()), "", s.ProxyOn)
-	on(ctx, proxyItem, func() {
-		if err := a.SetProxy(!a.ProxyRunning()); err != nil {
+	on(ctx, proxyItem, t.keepOpen(func() error {
+		err := a.SetProxy(!a.ProxyRunning())
+		if err != nil {
 			log.Printf("proxy: %v", err)
 		}
-	})
+		return err
+	}))
 	if !s.Trusted {
 		on(ctx, systray.AddMenuItem("Trust the HTTPS certificate…", "Stop browser certificate warnings"), func() {
 			a.OfferTrust()
@@ -163,11 +166,13 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	for _, g := range s.Groups {
 		g := g
 		item := systray.AddMenuItemCheckbox(g.Name, fmt.Sprintf("%d entries", len(g.Entries)), g.Enabled)
-		on(ctx, item, func() {
-			if _, err := a.SetGroup(g.Name, !g.Enabled); err != nil {
+		on(ctx, item, t.keepOpen(func() error {
+			_, err := a.SetGroup(g.Name, !g.Enabled)
+			if err != nil {
 				log.Printf("toggle %q: %v", g.Name, err)
 			}
-		})
+			return err
+		}))
 	}
 	systray.AddSeparator()
 
@@ -202,4 +207,18 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 	systray.AddSeparator()
 
 	on(ctx, systray.AddMenuItem("Quit", ""), t.quit)
+}
+
+// keepOpen runs a switch from the menu and then reopens the menu, so several
+// can be flipped in a row. Not after an error, or when the switch took long
+// enough that a password prompt or dialog probably came up in between.
+func (t *tray) keepOpen(f func() error) func() {
+	return func() {
+		start := time.Now()
+		if err := f(); err != nil || time.Since(start) > 2*time.Second {
+			return
+		}
+		t.refresh(false) // show the new state, not the one the menu was built with
+		reopenMenu()
+	}
 }
