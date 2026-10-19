@@ -29,9 +29,11 @@ rm -f rsrc_windows_*.syso
 # Per-user installers wrapping those exes. The updater keeps using the bare
 # exes; the installers are for first installs.
 if command -v makensis >/dev/null; then
+	# Windows makensis (under Git Bash) needs backslashed C: paths.
+	native() { if command -v cygpath >/dev/null; then cygpath -w "$1"; else echo "$1"; fi; }
 	for arch in amd64 arm64; do
-		makensis -V2 -DVERSION="$VERSION" -DEXE="$PWD/dist/hoststray-$VERSION-windows-$arch.exe" \
-			-DOUTFILE="$PWD/dist/Hosts-Tray-$VERSION-windows-$arch-setup.exe" scripts/windows/installer.nsi
+		makensis -V2 -DVERSION="$VERSION" -DEXE="$(native "$PWD/dist/hoststray-$VERSION-windows-$arch.exe")" \
+			-DOUTFILE="$(native "$PWD/dist/Hosts-Tray-$VERSION-windows-$arch-setup.exe")" scripts/windows/installer.nsi
 	done
 else
 	echo "makensis not found (brew install makensis): skipping the Windows installers"
