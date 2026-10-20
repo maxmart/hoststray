@@ -191,6 +191,7 @@ func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 		log.Printf("hosts write failed: %v", err)
 		return SaveResult{Error: err.Error(), err: err}
 	}
+	a.proxy.DropKeepAlives() // so browsers look hostnames up again
 	a.changed()
 	if elevated {
 		go a.offerPasswordless()

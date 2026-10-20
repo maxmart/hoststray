@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -314,5 +315,74 @@ func TestStartStop(t *testing.T) {
 	}
 	if err := f.srv.Start(); err != nil {
 		t.Fatalf("restart: %v", err)
+	}
+}
+
+func TestDropKeepAlives(t *testing.T) {
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			<-release
+		}
+	}))
+	defer slow.Close()
+	ws := backend(t, "ws")
+	f := setup(t, fmt.Sprintf("* -> :%d\nwss://*/socket -> :%d\n", port(t, slow), port(t, ws)))
+	reused := func(path string) bool {
+		t.Helper()
+		var got bool
+		ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+			GotConn: func(i httptrace.GotConnInfo) { got = i.Reused },
+		})
+		req, _ := http.NewRequestWithContext(ctx, "GET", "https://app.example.com"+path, nil)
+		resp, err := f.client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return got
+	}
+
+	// A websocket opened before the drop keeps working.
+	roots := x509.NewCertPool()
+	roots.AddCert(f.ca.Cert())
+	conn, err := tls.Dial("tcp", "127.0.0.1:"+strconv.Itoa(f.port), &tls.Config{ServerName: "app.example.com", RootCAs: roots})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprint(conn, "GET /socket HTTP/1.1\r\nHost: app.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+	br := bufio.NewReader(conn)
+	if resp, err := http.ReadResponse(br, nil); err != nil || resp.StatusCode != 101 {
+		t.Fatalf("handshake: %v %v", resp, err)
+	}
+
+	reused("/")
+	if !reused("/") {
+		t.Fatal("expected keep-alive reuse")
+	}
+	f.srv.DropKeepAlives()
+	time.Sleep(50 * time.Millisecond) // let the client see the close
+	if reused("/") {
+		t.Fatal("idle connection reused after drop")
+	}
+
+	// A request in flight finishes, then its connection is closed.
+	done := make(chan bool)
+	go func() { done <- reused("/slow") }()
+	time.Sleep(100 * time.Millisecond)
+	f.srv.DropKeepAlives()
+	close(release)
+	<-done
+	time.Sleep(50 * time.Millisecond)
+	if reused("/") {
+		t.Fatal("busy connection reused after drop")
+	}
+
+	writeFrame(conn, 1, []byte("still"), true)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, p, err := readFrame(br); err != nil || string(p) != "ws:still" {
+		t.Fatalf("websocket after drop: %q %v", p, err)
 	}
 }

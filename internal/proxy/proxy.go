@@ -44,6 +44,15 @@ type Server struct {
 	mu  sync.Mutex
 	srv *http.Server
 	ln  net.Listener
+
+	connMu sync.Mutex
+	conns  map[net.Conn]*clientConn // browser connections, until closed or hijacked
+	gen    int                      // bumped by DropKeepAlives
+}
+
+type clientConn struct {
+	gen  int // the DropKeepAlives generation it was accepted in
+	idle bool
 }
 
 func New(opts Options) *Server {
@@ -53,7 +62,7 @@ func New(opts Options) *Server {
 	if opts.Timeout == 0 {
 		opts.Timeout = 5 * time.Minute
 	}
-	s := &Server{opts: opts}
+	s := &Server{opts: opts, conns: map[net.Conn]*clientConn{}}
 	s.transport = &http.Transport{
 		Proxy:                 nil, // never send local traffic through a system proxy
 		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -159,6 +168,7 @@ func (s *Server) Start() error {
 			MinVersion:     tls.VersionTLS12,
 		},
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){}, // no HTTP/2
+		ConnState:         s.connState,
 		ReadHeaderTimeout: 30 * time.Second,
 		ErrorLog:          log.New(tlsNoiseFilter{}, "", 0),
 	}
@@ -189,6 +199,54 @@ func (s *Server) Stop() {
 		srv.Close() // websockets don't drain; cut them
 	}
 	s.transport.CloseIdleConnections()
+}
+
+// DropKeepAlives closes the browsers' keep-alive connections, idle ones now and
+// busy ones when their request is done. Browsers reuse an open HTTP/1.1
+// connection without looking at the hosts file, so after a group is turned
+// off they would keep coming here instead of going to the real server.
+// Websockets are left alone.
+func (s *Server) DropKeepAlives() {
+	s.connMu.Lock()
+	s.gen++
+	var idle []net.Conn
+	for c, cc := range s.conns {
+		if cc.idle {
+			idle = append(idle, c)
+			delete(s.conns, c)
+		}
+	}
+	s.connMu.Unlock()
+	for _, c := range idle {
+		c.Close()
+	}
+}
+
+func (s *Server) connState(c net.Conn, state http.ConnState) {
+	s.connMu.Lock()
+	cc := s.conns[c]
+	stale := false
+	switch state {
+	case http.StateNew:
+		s.conns[c] = &clientConn{gen: s.gen}
+	case http.StateActive:
+		if cc != nil {
+			cc.idle = false
+		}
+	case http.StateIdle:
+		if cc != nil {
+			cc.idle = true
+			if stale = cc.gen < s.gen; stale {
+				delete(s.conns, c)
+			}
+		}
+	case http.StateHijacked, http.StateClosed:
+		delete(s.conns, c)
+	}
+	s.connMu.Unlock()
+	if stale {
+		c.Close()
+	}
 }
 
 func (s *Server) Running() bool {
