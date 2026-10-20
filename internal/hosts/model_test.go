@@ -236,3 +236,17 @@ func runJS(t *testing.T, module string, ops []map[string]any) []json.RawMessage 
 	}
 	return res
 }
+
+func TestActive(t *testing.T) {
+	doc := Parse("10.0.0.9 Top.test\n#==== G\n127.0.0.1 a.test\n#127.0.0.1 b.test\n127.0.0.1 top.test\n#====\n")
+	got := Active(doc)
+	want := map[string]string{"top.test": "10.0.0.9", "a.test": "127.0.0.1"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for h, ip := range want {
+		if got[h] != ip {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}

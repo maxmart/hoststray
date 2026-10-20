@@ -4,10 +4,13 @@ package platform
 
 import (
 	"errors"
+	"log"
+	"net/netip"
 	"os"
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // ErrCancelled is returned when the user dismisses a password/UAC prompt.
@@ -52,9 +55,36 @@ func currentUser() (string, error) {
 	return u.Username, nil
 }
 
+// HostsPasswordless reports whether hosts writes work without a password or
+// UAC prompt: through the helper service, or because the user may write the
+// file.
+func HostsPasswordless(path string) bool { return helperReady(path) || Writable(path) }
+
+// WriteHosts writes the hosts file through the helper service if there is
+// one, or else like ElevatedWrite. Where it can (the helper, or a UAC prompt
+// on Windows) it then closes connections to the addresses in drop, so
+// browsers stop reusing keep-alive connections to where a hostname used to
+// point.
+func WriteHosts(path string, content []byte, drop []netip.Addr) (elevated bool, err error) {
+	if err := helperWrite(path, content, drop); err == nil {
+		return false, nil
+	} else if !errors.Is(err, errNoHelper) {
+		log.Printf("%v; writing without it", err)
+	}
+	return elevatedWrite(path, content, drop)
+}
+
+// HelperCommand runs the command line modes of the helper service (running
+// it, installing it, and the like). ok is false for any other command line.
+func HelperCommand(args []string) (code int, ok bool) { return helperCommand(args) }
+
 // ElevatedWrite writes content to path, first directly and, if that's not
 // permitted, through an elevated copy (password or UAC prompt).
 func ElevatedWrite(path string, content []byte) (elevated bool, err error) {
+	return elevatedWrite(path, content, nil)
+}
+
+func elevatedWrite(path string, content []byte, drop []netip.Addr) (elevated bool, err error) {
 	if err := os.WriteFile(path, content, 0o644); err == nil {
 		return false, nil
 	} else if !errors.Is(err, os.ErrPermission) {
@@ -76,7 +106,7 @@ func ElevatedWrite(path string, content []byte) (elevated bool, err error) {
 		return false, err
 	}
 	tmp.Close()
-	return true, elevatedCopy(tmp.Name(), path)
+	return true, elevatedCopy(tmp.Name(), path, drop)
 }
 
 // SetUserWritable grants (or revokes) the current user write access to path,
@@ -112,6 +142,12 @@ func HostsPath() string {
 		return p
 	}
 	return systemHostsPath()
+}
+
+// IsSystemHosts reports whether path is the system's hosts file rather than
+// a test copy.
+func IsSystemHosts(path string) bool {
+	return strings.EqualFold(filepath.Clean(path), systemHostsPath())
 }
 
 func executable() string {

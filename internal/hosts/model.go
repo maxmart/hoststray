@@ -284,3 +284,25 @@ func SetGroup(doc *Doc, name string, enable bool) bool {
 	}
 	return false
 }
+
+// Active maps each hostname with an enabled entry to its address. Like the
+// OS, the first enabled entry for a hostname wins.
+func Active(doc *Doc) map[string]string {
+	m := map[string]string{}
+	var walk func([]*Node)
+	walk = func(nodes []*Node) {
+		for _, n := range nodes {
+			switch {
+			case n.T == "group":
+				walk(n.Children)
+			case n.T == "entry" && n.Enabled:
+				host := strings.ToLower(n.Host)
+				if _, ok := m[host]; !ok {
+					m[host] = n.IP
+				}
+			}
+		}
+	}
+	walk(doc.Nodes)
+	return m
+}

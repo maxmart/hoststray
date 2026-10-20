@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,12 +69,21 @@ const (
 )
 
 // runElevated runs a cmd.exe command line through a UAC prompt and waits for
-// it. Declining the prompt returns ErrCancelled; ShellExecuteEx reports that
-// as ERROR_CANCELLED, so it can't be confused with any other failure.
+// it.
 func runElevated(cmdline string) error {
+	return runElevatedExe(filepath.Join(systemRoot(), "System32", "cmd.exe"), "/c "+cmdline)
+}
+
+// runElevatedExe runs a program through a UAC prompt and waits for it.
+// Declining the prompt returns ErrCancelled; ShellExecuteEx reports that as
+// ERROR_CANCELLED, so it can't be confused with any other failure.
+func runElevatedExe(exe, args string) error {
 	verb, _ := windows.UTF16PtrFromString("runas")
-	file, _ := windows.UTF16PtrFromString(filepath.Join(systemRoot(), "System32", "cmd.exe"))
-	params, err := windows.UTF16PtrFromString("/c " + cmdline)
+	file, err := windows.UTF16PtrFromString(exe)
+	if err != nil {
+		return err
+	}
+	params, err := windows.UTF16PtrFromString(args)
 	if err != nil {
 		return err
 	}
@@ -105,11 +115,24 @@ func runElevated(cmdline string) error {
 
 func cmdQuote(s string) string { return `"` + s + `"` }
 
-func elevatedCopy(src, dst string) error {
-	return runElevated("copy /Y " + cmdQuote(src) + " " + cmdQuote(dst) + " >nul && ipconfig /flushdns >nul")
+func elevatedCopy(src, dst string, drop []netip.Addr) error {
+	cmd := "copy /Y " + cmdQuote(src) + " " + cmdQuote(dst) + " >nul && ipconfig /flushdns >nul"
+	if len(drop) > 0 {
+		var addrs []string
+		for _, a := range drop {
+			addrs = append(addrs, a.String())
+		}
+		cmd += " && " + cmdQuote(executable()) + " --close-connections " + strings.Join(addrs, ",")
+	}
+	return runElevated(cmd)
 }
 
+// setUserWritable installs or removes the helper service for the system hosts
+// file, and grants or revokes write access for any other (a test copy).
 func setUserWritable(path string, enable bool) error {
+	if IsSystemHosts(path) {
+		return setHelper(enable)
+	}
 	name, err := currentUser()
 	if err != nil {
 		return err

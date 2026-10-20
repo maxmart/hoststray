@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,7 +43,7 @@ end run`
 	return err
 }
 
-func elevatedCopy(src, dst string) error {
+func elevatedCopy(src, dst string, drop []netip.Addr) error { // TODO(mac): close connections to drop
 	// cp keeps the destination's owner and permissions. Flushing the DNS cache
 	// makes the change visible right away.
 	err := runAsAdmin("Hosts Tray wants to update your hosts file.",

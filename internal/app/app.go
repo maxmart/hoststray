@@ -3,12 +3,15 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -185,7 +188,11 @@ type SaveResult struct {
 // SaveHosts writes the document, elevating if needed.
 func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 	a.mu.Lock()
-	elevated, err := platform.ElevatedWrite(a.cfg.HostsPath, []byte(hosts.Serialize(doc)))
+	var drop []netip.Addr
+	if old, err := a.LoadHosts(); err == nil && platform.IsSystemHosts(a.cfg.HostsPath) {
+		drop = movedAway(old, doc)
+	}
+	elevated, err := platform.WriteHosts(a.cfg.HostsPath, []byte(hosts.Serialize(doc)), drop)
 	a.mu.Unlock()
 	if err != nil {
 		log.Printf("hosts write failed: %v", err)
@@ -197,6 +204,48 @@ func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 		go a.offerPasswordless()
 	}
 	return SaveResult{OK: true, Elevated: elevated}
+}
+
+// movedAway returns where the hostnames whose entries differ between old and
+// next point now, which is where browsers may hold keep-alive connections for
+// them. It must run before next is written. Loopback is left out: those
+// connections are the proxy's, and it drops them itself (DropKeepAlives).
+func movedAway(old, next *hosts.Doc) []netip.Addr {
+	before, after := hosts.Active(old), hosts.Active(next)
+	var changed []string
+	for h, ip := range before {
+		if after[h] != ip {
+			changed = append(changed, h)
+		}
+	}
+	for h := range after {
+		if _, ok := before[h]; !ok {
+			changed = append(changed, h)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	seen := map[netip.Addr]bool{}
+	var drop []netip.Addr
+	for _, h := range changed {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			addrs, _ := net.DefaultResolver.LookupNetIP(ctx, "ip4", h)
+			mu.Lock()
+			defer mu.Unlock()
+			for _, a := range addrs {
+				if a = a.Unmap(); !a.IsLoopback() && !seen[a] {
+					seen[a] = true
+					drop = append(drop, a)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	return drop
 }
 
 var ErrNoGroup = errors.New("no such group")
@@ -232,7 +281,7 @@ func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
 }
 
 // HostsPasswordless reports whether hosts writes work without elevation.
-func (a *App) HostsPasswordless() bool { return platform.Writable(a.cfg.HostsPath) }
+func (a *App) HostsPasswordless() bool { return platform.HostsPasswordless(a.cfg.HostsPath) }
 
 func (a *App) SetHostsPasswordless(enable bool) error {
 	err := platform.SetUserWritable(a.cfg.HostsPath, enable)
@@ -249,8 +298,8 @@ func (a *App) offerPasswordless() {
 	if !a.cfg.Interactive || a.HostsPasswordless() || a.Settings().PasswordlessDeclined {
 		return
 	}
-	msg := "Hosts Tray can give your user account write access to " + a.cfg.HostsPath +
-		" so toggling groups no longer asks for your password. Other programs running as you could then edit it too.\n\n" +
+	msg := "Hosts Tray can set itself up to change " + a.cfg.HostsPath +
+		" without asking for your password each time. Other programs running as you could then change it too.\n\n" +
 		"You can change this later from the tray menu."
 	switch platform.Ask("Change the hosts file without a password?", msg, "Allow", "Not now", "Don't ask again") {
 	case 0:

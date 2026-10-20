@@ -28,6 +28,9 @@ import (
 var version = "dev" // set with -ldflags "-X main.version=..."
 
 func main() {
+	if code, ok := platform.HelperCommand(os.Args[1:]); ok {
+		os.Exit(code)
+	}
 	headless := flag.Bool("headless", false, "run without a tray icon (editors and API still served)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	uninstall := flag.Bool("uninstall", false, "undo certificate trust and password-free hosts access (run by the Windows uninstaller)")

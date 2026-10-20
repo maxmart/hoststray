@@ -45,7 +45,7 @@ func runUninstall() int {
 	if err := platform.UntrustCA(certs.CAPath(filepath.Join(cfg.DataDir, "_certs"))); err != nil {
 		failed = append(failed, "Stop trusting the certificate: "+err.Error())
 	}
-	if platform.Writable(cfg.HostsPath) {
+	if platform.HostsPasswordless(cfg.HostsPath) {
 		if err := platform.SetUserWritable(cfg.HostsPath, false); err != nil && !errors.Is(err, platform.ErrCancelled) {
 			failed = append(failed, "Remove password-free hosts access: "+err.Error())
 		}

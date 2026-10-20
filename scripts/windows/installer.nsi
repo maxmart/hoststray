@@ -88,6 +88,10 @@ SectionEnd
 Section "Uninstall"
   !insertmacro StopApp
 
+  ; The helper service runs a copy of the exe from Program Files; removing it
+  ; asks for permission, and only if it is installed.
+  ExecWait '"$INSTDIR\hoststray.exe" --remove-helper'
+
   ; Undo what the app set up outside its folder. Hosts file entries are kept.
   MessageBox MB_YESNO|MB_ICONQUESTION "Also remove Hosts Tray's settings and certificates?$\n$\nThis stops Windows trusting its certificate authority and removes password-free access to the hosts file (which asks for permission). Your hosts file entries are kept." /SD IDNO IDNO keepdata
     ExecWait '"$INSTDIR\hoststray.exe" --uninstall'
