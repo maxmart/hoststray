@@ -5,9 +5,8 @@
 <h1 align="center">Hosts Tray</h1>
 
 <p align="center">
-  <b>Real domains, local servers, valid HTTPS. From your menu bar.</b><br>
-  Toggle groups of hosts file entries and run a local HTTPS proxy with<br>
-  auto-generated certificates, so <code>https://app.example.com</code> hits your dev server on <code>localhost:3000</code>.
+  <b>Easily switch hosts and SSL proxy from your tray.</b><br>
+  Define groups of entries in your hosts file, and run a local HTTPS proxy with self-signed certificates that generate on-the-fly.
 </p>
 
 <p align="center">
@@ -72,9 +71,10 @@ table decides which local port gets the request.
 - 🔒 **HTTPS proxy.** A certificate per hostname on the fly, websockets included.
 - 🧭 **Routes.** Send paths and websocket upgrades to different ports; changes apply on save.
 - 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
-- 🔑 **No password prompts, if you want.** One opt-in setting and toggles stop asking.
+- 🔑 **No password prompts, if you want.** Opt-in settings for switching groups and for editing.
+- 🔁 **Browsers follow the switch.** Open connections to the old address are dropped, so the next request goes to the new one.
 - 📦 **Move to another computer.** Export and import groups and routes as one text file.
-- 🤖 **Agent skill.** Claude Code and other coding agents can switch groups and the proxy.
+- 🤖 **Agent skill.** Claude Code and other coding agents can switch groups and the proxy, and ask you before adding hostnames.
 - 🔄 **Auto-update** from GitHub Releases, checksum-verified.
 
 <p align="center">
@@ -114,7 +114,8 @@ there's no window or Dock icon.
 
 Uninstalling on Windows asks whether to also remove settings and
 certificates; yes also stops Windows trusting the Hosts Tray CA and removes
-password-free hosts access. Hosts file entries are always kept.
+password-free hosts editing. The password-free helper is always removed
+(one UAC prompt, if it's installed). Hosts file entries are always kept.
 
 ## Hosts file groups
 
@@ -149,18 +150,39 @@ default every change asks for your password (macOS) or a UAC confirmation
 (Windows). On macOS that's the system's own admin dialog, which asks for the
 password (macOS doesn't offer Touch ID for running things as root).
 
-**Settings → Change hosts without password** installs a small helper, after
-one last prompt: a launchd daemon on macOS or a service on Windows, serving
-your user account only. Later toggles, including ones from agents, don't
-prompt. The app offers this after the first prompted change. On macOS the
-helper can only switch groups that are already in the hosts file; editing the
-file, or importing, still asks. The trade-off: other programs running as you
-could switch your groups too. The helper removes itself if the app is deleted,
-and the app offers to update it after an app update.
+Two settings, in the tray menu's **Settings** and in the console, take the
+prompts away. Each asks one last time when you turn it on.
 
-With each change the app also makes browsers drop keep-alive connections to
-where a changed hostname used to point, so the next request looks the name up
-again instead of reaching the old server.
+- **Switch groups without password** installs a small helper: a launchd
+  daemon on macOS, a service on Windows. Switching groups on or off, from the
+  tray, the console or an agent, then goes through it without a prompt. The
+  app offers this after the first prompted switch.
+- **Edit hosts without password** gives your user account write access to the
+  hosts file, so editing it in the console, importing and agent additions
+  stop asking as well.
+
+The helper can do one thing only: switch a group that's already in the hosts
+file on or off. It never takes new entries, so pointing a name somewhere new
+always goes through you. It only accepts connections from your user account,
+and the app checks that it's talking to the real helper before trusting it.
+The trade-off: other programs running as you could switch your groups too,
+and with **Edit hosts without password** they could edit the file. The helper
+removes itself if the app is deleted, and the app offers to update it after
+an app update.
+
+```mermaid
+flowchart LR
+    T["Tray, console, agent"] --> A["Hosts Tray<br/>(runs as you)"]
+    A -- "switch group" --> H["Helper<br/>(admin)"]
+    H --> F["hosts file"]
+    A -- "other edits: password prompt,<br/>or directly if editing is password-free" --> F
+```
+
+Browsers keep connections open and reuse them without looking the name up
+again, so after a switch they can stay on the old server for minutes. With
+each change the app flushes the DNS cache and drops the connections to where a
+changed hostname used to point, so the next request goes to the new address.
+On Windows this covers IPv4 addresses.
 
 ## HTTPS proxy
 
@@ -233,13 +255,15 @@ call these endpoints with it:
 | --- | --- |
 | `GET /api/status` | Groups with their entries, proxy state, port, CA trust, routes |
 | `POST /api/group` `{"name","enabled"}` | Switch an existing group on or off |
+| `POST /api/group/entries` `{"group","entries":[{"ip","host"}]}` | Ask to add hostnames to a group (created if needed) |
 | `POST /api/proxy/enabled` `{"enabled"}` | Start or stop the proxy |
 
-The agent token is new on each launch and only works for those three. The
-console uses a separate token that never touches disk, so agents can't add
-hostnames, groups or routes, or trust the CA. Pointing a real domain at
-localhost behind a trusted CA lets whoever controls it intercept that site's
-traffic, so those stay with you in the console. The server only answers on
+The agent token is new on each launch and only works for those four. Adding
+hostnames shows you a dialog listing them, and nothing changes unless you
+click **Add**. The console uses a separate token that never touches disk, so
+agents can't remove or rename anything, change routes, import, or trust the
+CA. Pointing a real domain at localhost behind a trusted CA lets whoever
+controls it intercept that site's traffic, so those stay with you. The server only answers on
 `127.0.0.1` and rejects requests from web pages, so websites can't reach it.
 
 ## Updates
@@ -286,6 +310,10 @@ go run .                         # run from source
 go test ./...                    # unit and integration tests
 ```
 
+On Windows, run `go generate . ./internal/platform` before building: the first
+links in the icon and manifest (without it, dialogs fall back to plain Yes/No
+boxes), the second builds the helper service the app carries inside it.
+
 To try things without touching the real hosts file, copy it somewhere and run
 with `HOSTS_PATH` pointing at the copy.
 
@@ -312,7 +340,7 @@ VERSION=0.11.0 ./scripts/release.sh         # publish dist/ as a GitHub release 
 
 `build-release.sh` produces `Hosts-Tray-<v>-mac.zip` and `.pkg` (universal,
 signed and notarized, via `scripts/build-mac.sh`),
-`hoststray-<v>-windows-{amd64,arm64}.exe` with icon and manifest, their
+`hoststray-<v>-windows-{amd64,arm64}.exe` with icon, manifest and the helper service, their
 installers `Hosts-Tray-<v>-windows-{amd64,arm64}-setup.exe` (needs
 `brew install makensis`; skipped without it, see `scripts/windows/installer.nsi`),
 and the `SHA256SUMS` the updater requires.
