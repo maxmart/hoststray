@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+
+	"github.com/maxmart/hoststray/internal/platform"
 )
 
 // bundlePath is the running .app, from .../X.app/Contents/MacOS/binary.
@@ -98,15 +100,13 @@ func install(zipPath string) error {
 }
 
 func swapAsAdmin(bundle, newApp, old string) error {
-	script := `on run argv
-	do shell script "/bin/mv " & quoted form of item 1 of argv & " " & quoted form of item 3 of argv & " && /bin/mv " & quoted form of item 2 of argv & " " & quoted form of item 1 of argv with administrator privileges with prompt "Hosts Tray wants to install an update."
-end run`
-	out, err := exec.Command("osascript", "-e", script, bundle, newApp, old).CombinedOutput()
+	err := platform.RunAsAdmin("Hosts Tray wants to install an update.", "/bin/sh", "-c",
+		`/bin/mv "$0" "$2" && /bin/mv "$1" "$0"`, bundle, newApp, old)
+	if errors.Is(err, platform.ErrCancelled) {
+		return errors.New("update cancelled")
+	}
 	if err != nil {
-		if strings.Contains(string(out), "-128") {
-			return errors.New("update cancelled")
-		}
-		return fmt.Errorf("install update: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("install update: %w", err)
 	}
 	return nil
 }

@@ -26,6 +26,12 @@ for arch in arm64 amd64; do
 done
 lipo -create -output "$APP/Contents/MacOS/hoststray" "$OUT/hoststray-arm64" "$OUT/hoststray-amd64"
 rm "$OUT/hoststray-arm64" "$OUT/hoststray-amd64"
+# The root daemon behind "Change hosts without password": its own small binary.
+for arch in arm64 amd64; do
+	CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$OUT/hoststray-helper-$arch" ./cmd/hoststray-helper
+done
+lipo -create -output "$APP/Contents/MacOS/hoststray-helper" "$OUT/hoststray-helper-arm64" "$OUT/hoststray-helper-amd64"
+rm "$OUT/hoststray-helper-arm64" "$OUT/hoststray-helper-amd64"
 cp scripts/icon.icns "$APP/Contents/Resources/icon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -51,6 +57,7 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null
 ZIP="$OUT/Hosts-Tray-$VERSION-mac.zip"
 if [ -z "${APPLE_TEAM_ID:-}" ]; then
 	echo "==> APPLE_TEAM_ID not set: ad-hoc signing only (fine for local use)"
+	codesign --force --sign - "$APP/Contents/MacOS/hoststray-helper"
 	codesign --force --sign - "$APP"
 	ditto -c -k --keepParent "$APP" "$ZIP"
 	echo "Built $APP and $ZIP"
@@ -59,6 +66,8 @@ fi
 
 SIGN_ID="${APPLE_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep "Developer ID Application" | grep "($APPLE_TEAM_ID)" | head -1 | sed 's/.*"\(.*\)"/\1/')}"
 echo "==> Signing with $SIGN_ID"
+# Nested code first; signing the bundle doesn't sign the helper.
+codesign --force --options runtime --timestamp --identifier maxmart.hoststray.helper --sign "$SIGN_ID" "$APP/Contents/MacOS/hoststray-helper"
 codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 

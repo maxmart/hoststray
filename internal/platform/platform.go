@@ -74,6 +74,17 @@ func WriteHosts(path string, content []byte, drop []netip.Addr) (elevated bool, 
 	return elevatedWrite(path, content, drop)
 }
 
+// HelperSetGroup switches a hosts file group through the helper. handled is
+// false when there is no helper (or it can't do it); then write the file
+// yourself, which may prompt.
+func HelperSetGroup(path, name string, enable bool) (handled bool, err error) {
+	return helperSetGroup(path, name, enable)
+}
+
+// HelperOutdated reports whether the installed helper isn't the one this
+// version of the app ships, so it should be installed again.
+func HelperOutdated() bool { return helperOutdated() }
+
 // HelperCommand runs the command line modes of the helper service (running
 // it, installing it, and the like). ok is false for any other command line.
 func HelperCommand(args []string) (code int, ok bool) { return helperCommand(args) }

@@ -70,6 +70,7 @@ func main() {
 
 	a.RefreshSkill()
 	a.RestoreProxy()
+	go a.OfferHelperUpdate()
 	a.StartUpdateChecks()
 	// Working on a hosts copy is a test setup: show the editor straight away.
 	if os.Getenv("HOSTS_PATH") != "" && !*headless {

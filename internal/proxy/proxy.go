@@ -7,11 +7,15 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,9 +49,11 @@ type Server struct {
 	srv *http.Server
 	ln  net.Listener
 
-	connMu sync.Mutex
-	conns  map[net.Conn]*clientConn // browser connections, until closed or hijacked
-	gen    int                      // bumped by DropKeepAlives
+	connMu   sync.Mutex
+	conns    map[net.Conn]*clientConn // browser connections, until closed or hijacked
+	gen      int                      // bumped by DropKeepAlives
+	accepted sync.Map                 // remote addresses of open connections, for owns
+	watching chan struct{}            // closed by Stop, to end watchLoopback
 }
 
 type clientConn struct {
@@ -178,14 +184,135 @@ func (s *Server) Start() error {
 			log.Printf("proxy stopped: %v", err)
 		}
 	}()
+	if err := s.checkLoopback(); err != nil {
+		srv.Close()
+		ln.Close()
+		s.srv, s.ln = nil, nil
+		return err
+	}
+	s.watching = make(chan struct{})
+	go s.watchLoopback(s.watching)
 	log.Printf("Proxy listening on %s", addr)
 	return nil
+}
+
+// ErrLoopbackTaken means another program answers on the proxy's port at a
+// loopback address, so hostnames pointed there wouldn't reach the proxy.
+var ErrLoopbackTaken = errors.New("another program is listening there")
+
+// checkLoopback makes sure connections to 127.0.0.1 and ::1 reach this
+// proxy. On macOS another program can listen on 127.0.0.1:443 alongside our
+// *:443 without either getting an error, and the more specific one wins. (A
+// normal app can't bind 127.0.0.1 itself on a port below 1024; only root can.)
+func (s *Server) checkLoopback() error {
+	if s.opts.ListenHost != "" && !isLoopback(s.opts.ListenHost) {
+		return nil
+	}
+	port := strconv.Itoa(s.opts.Port)
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		addr := net.JoinHostPort(host, port)
+		ok, err := s.owns(addr)
+		if err != nil {
+			continue // nothing listens there (no IPv6, or ListenHost is the other one)
+		}
+		if !ok {
+			msg := fmt.Sprintf("%s: %v", addr, ErrLoopbackTaken)
+			if name := listenerName(addr); name != "" {
+				msg = fmt.Sprintf("%s: %s is listening there", addr, name)
+			}
+			return fmt.Errorf("%s (%w)", msg, ErrLoopbackTaken)
+		}
+	}
+	return nil
+}
+
+func isLoopback(host string) bool {
+	ip := net.ParseIP(host)
+	return host == "localhost" || (ip != nil && ip.IsLoopback())
+}
+
+// owns reports whether a connection to addr arrives here.
+func (s *Server) owns(addr string) (bool, error) {
+	c, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		return false, err
+	}
+	defer c.Close()
+	key := addrKey(c.LocalAddr())
+	for i := 0; i < 20; i++ {
+		if _, ok := s.accepted.Load(key); ok {
+			return true, nil
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return false, nil
+}
+
+func addrKey(a net.Addr) string {
+	if ap, err := netip.ParseAddrPort(a.String()); err == nil {
+		return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()).String()
+	}
+	return a.String()
+}
+
+// listenerName names the program listening on addr, if it runs as this user
+// (lsof can't see other users' sockets without root).
+func listenerName(addr string) string {
+	host, port, _ := net.SplitHostPort(addr)
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	out, err := exec.Command("lsof", "-nP", "-iTCP@"+host+":"+port, "-sTCP:LISTEN", "-Fpc").Output()
+	if err != nil {
+		return ""
+	}
+	pid := strconv.Itoa(os.Getpid())
+	var cur string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "p") {
+			cur = line[1:]
+		} else if strings.HasPrefix(line, "c") && cur != pid {
+			return line[1:] + " (pid " + cur + ")"
+		}
+	}
+	return ""
+}
+
+var loopbackCheckEvery = 30 * time.Second
+
+// OnLoopbackTaken, if set, is called when another program starts answering
+// on a loopback address while the proxy runs.
+var OnLoopbackTaken func(error)
+
+func (s *Server) watchLoopback(stop chan struct{}) {
+	t := time.NewTicker(loopbackCheckEvery)
+	defer t.Stop()
+	reported := false
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		}
+		err := s.checkLoopback()
+		if err != nil && !reported {
+			log.Printf("proxy: %v", err)
+			if OnLoopbackTaken != nil {
+				OnLoopbackTaken(err)
+			}
+		}
+		reported = err != nil
+	}
 }
 
 func (s *Server) Stop() {
 	s.mu.Lock()
 	srv, ln := s.srv, s.ln
 	s.srv, s.ln = nil, nil
+	if s.watching != nil {
+		close(s.watching)
+		s.watching = nil
+	}
 	s.mu.Unlock()
 	if srv == nil {
 		return
@@ -229,6 +356,7 @@ func (s *Server) connState(c net.Conn, state http.ConnState) {
 	switch state {
 	case http.StateNew:
 		s.conns[c] = &clientConn{gen: s.gen}
+		s.accepted.Store(addrKey(c.RemoteAddr()), true)
 	case http.StateActive:
 		if cc != nil {
 			cc.idle = false
@@ -242,6 +370,7 @@ func (s *Server) connState(c net.Conn, state http.ConnState) {
 		}
 	case http.StateHijacked, http.StateClosed:
 		delete(s.conns, c)
+		s.accepted.Delete(addrKey(c.RemoteAddr()))
 	}
 	s.connMu.Unlock()
 	if stale {

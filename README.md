@@ -146,11 +146,21 @@ tray menu.
 
 The hosts file belongs to the system, so changing it needs admin rights. By
 default every change asks for your password (macOS) or a UAC confirmation
-(Windows). **Settings → Change hosts without password** instead gives your
-user account write access to the hosts file once, so later toggles, including
-ones from agents, don't prompt. The app offers this after the first prompted
-change. The trade-off: other programs running as you could then edit the
-hosts file too.
+(Windows). On macOS that's the system's own admin dialog, which asks for the
+password (macOS doesn't offer Touch ID for running things as root).
+
+**Settings → Change hosts without password** installs a small helper, after
+one last prompt: a launchd daemon on macOS or a service on Windows, serving
+your user account only. Later toggles, including ones from agents, don't
+prompt. The app offers this after the first prompted change. On macOS the
+helper can only switch groups that are already in the hosts file; editing the
+file, or importing, still asks. The trade-off: other programs running as you
+could switch your groups too. The helper removes itself if the app is deleted,
+and the app offers to update it after an app update.
+
+With each change the app also makes browsers drop keep-alive connections to
+where a changed hostname used to point, so the next request looks the name up
+again instead of reaching the old server.
 
 ## HTTPS proxy
 

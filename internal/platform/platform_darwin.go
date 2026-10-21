@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/maxmart/hoststray/internal/helper"
 )
 
 func systemHostsPath() string { return "/etc/hosts" }
@@ -29,29 +31,21 @@ func osascript(script string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// runAsAdmin runs a shell command as root after the standard macOS admin
-// password prompt. Arguments are quoted by AppleScript's "quoted form of".
-func runAsAdmin(prompt, command string, args ...string) error {
-	script := `on run argv
-	set cmd to item 1 of argv
-	repeat with a in items 3 thru -1 of argv
-		set cmd to cmd & " " & quoted form of (a as text)
-	end repeat
-	do shell script cmd with administrator privileges with prompt (item 2 of argv)
-end run`
-	_, err := osascript(script, append([]string{command, prompt}, args...)...)
-	return err
-}
-
-func elevatedCopy(src, dst string, drop []netip.Addr) error { // TODO(mac): close connections to drop
+func elevatedCopy(src, dst string, drop []netip.Addr) error {
 	// cp keeps the destination's owner and permissions. Flushing the DNS cache
-	// makes the change visible right away.
-	err := runAsAdmin("Hosts Tray wants to update your hosts file.",
-		`/bin/sh -c 'cp "$0" "$1" && (dscacheutil -flushcache; killall -HUP mDNSResponder; true)'`, src, dst)
-	return err
+	// makes the change visible right away. Resetting connections uses only
+	// system tools, and if it fails the hosts file was still written.
+	return runAsAdmin("Hosts Tray wants to update your hosts file.", "/bin/sh", "-c",
+		`cp "$0" "$1" && (dscacheutil -flushcache; killall -HUP mDNSResponder; true) && eval "$2"`,
+		src, dst, helper.PromptScript(drop))
 }
 
+// setUserWritable installs or removes the helper daemon for the system hosts
+// file, and grants or revokes write access for any other (a test copy).
 func setUserWritable(path string, enable bool) error {
+	if IsSystemHosts(path) {
+		return setHelper(enable)
+	}
 	name, err := currentUser()
 	if err != nil {
 		return err
@@ -64,7 +58,7 @@ func setUserWritable(path string, enable bool) error {
 	if !enable {
 		prompt = "Hosts Tray wants to require a password for hosts file changes again."
 	}
-	return runAsAdmin(prompt, "/bin/chmod "+op, "user:"+name+" allow write,append", path)
+	return runAsAdmin(prompt, "/bin/chmod", op, "user:"+name+" allow write,append", path)
 }
 
 func loginKeychain() string {

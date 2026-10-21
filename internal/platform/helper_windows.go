@@ -150,6 +150,12 @@ func helperWrite(path string, content []byte, drop []netip.Addr) error {
 	return err
 }
 
+// helperSetGroup: the Windows helper takes whole-file writes (helperWrite)
+// for now.
+func helperSetGroup(path, name string, enable bool) (bool, error) { return false, nil }
+
+func helperOutdated() bool { return false }
+
 func currentSID() (string, error) {
 	u, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {

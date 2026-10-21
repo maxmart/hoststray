@@ -3,14 +3,12 @@
 package app
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -20,6 +18,7 @@ import (
 	"time"
 
 	"github.com/maxmart/hoststray/internal/certs"
+	"github.com/maxmart/hoststray/internal/helper"
 	"github.com/maxmart/hoststray/internal/hosts"
 	"github.com/maxmart/hoststray/internal/platform"
 	"github.com/maxmart/hoststray/internal/proxy"
@@ -108,6 +107,12 @@ func New(cfg Config) (*App, error) {
 	rand.Read(agentTok)
 	a := &App{cfg: cfg, CA: ca, confPath: confPath, token: token, agentTok: hex.EncodeToString(agentTok)}
 	a.proxy = proxy.New(proxy.Options{CA: ca, ListenHost: cfg.ListenHost, Port: cfg.ProxyPort, Timeout: cfg.Timeout})
+	if cfg.Interactive {
+		proxy.OnLoopbackTaken = func(err error) {
+			platform.Alert("HTTPS Proxy", "Another program now answers on port "+strconv.Itoa(cfg.ProxyPort)+
+				", so hostnames pointed at this Mac reach it instead of the proxy.\n\n"+err.Error())
+		}
+	}
 	a.loadSettings()
 	return a, nil
 }
@@ -190,7 +195,7 @@ func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 	a.mu.Lock()
 	var drop []netip.Addr
 	if old, err := a.LoadHosts(); err == nil && platform.IsSystemHosts(a.cfg.HostsPath) {
-		drop = movedAway(old, doc)
+		drop = hosts.MovedAway(old, doc)
 	}
 	elevated, err := platform.WriteHosts(a.cfg.HostsPath, []byte(hosts.Serialize(doc)), drop)
 	a.mu.Unlock()
@@ -206,49 +211,7 @@ func (a *App) SaveHosts(doc *hosts.Doc) SaveResult {
 	return SaveResult{OK: true, Elevated: elevated}
 }
 
-// movedAway returns where the hostnames whose entries differ between old and
-// next point now, which is where browsers may hold keep-alive connections for
-// them. It must run before next is written. Loopback is left out: those
-// connections are the proxy's, and it drops them itself (DropKeepAlives).
-func movedAway(old, next *hosts.Doc) []netip.Addr {
-	before, after := hosts.Active(old), hosts.Active(next)
-	var changed []string
-	for h, ip := range before {
-		if after[h] != ip {
-			changed = append(changed, h)
-		}
-	}
-	for h := range after {
-		if _, ok := before[h]; !ok {
-			changed = append(changed, h)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	seen := map[netip.Addr]bool{}
-	var drop []netip.Addr
-	for _, h := range changed {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			addrs, _ := net.DefaultResolver.LookupNetIP(ctx, "ip4", h)
-			mu.Lock()
-			defer mu.Unlock()
-			for _, a := range addrs {
-				if a = a.Unmap(); !a.IsLoopback() && !seen[a] {
-					seen[a] = true
-					drop = append(drop, a)
-				}
-			}
-		}()
-	}
-	wg.Wait()
-	return drop
-}
-
-var ErrNoGroup = errors.New("no such group")
+var ErrNoGroup = helper.ErrNoGroup
 
 // GroupEnabled reports whether every entry of the named group is on.
 func (a *App) GroupEnabled(name string) bool {
@@ -264,8 +227,20 @@ func (a *App) GroupEnabled(name string) bool {
 	return false
 }
 
-// SetGroup turns every entry in an existing group on or off.
+// SetGroup turns every entry in an existing group on or off, through the
+// helper if there is one.
 func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
+	a.mu.Lock()
+	handled, err := platform.HelperSetGroup(a.cfg.HostsPath, name, enable)
+	a.mu.Unlock()
+	if handled {
+		if err != nil {
+			return SaveResult{Error: err.Error(), err: err}, err
+		}
+		a.proxy.DropKeepAlives()
+		a.changed()
+		return SaveResult{OK: true}, nil
+	}
 	doc, err := a.LoadHosts()
 	if err != nil {
 		return SaveResult{}, err
@@ -292,6 +267,19 @@ func (a *App) SetHostsPasswordless(enable bool) error {
 	return err
 }
 
+// OfferHelperUpdate asks to install the helper again when the installed one
+// is from another version of the app.
+func (a *App) OfferHelperUpdate() {
+	if !a.cfg.Interactive || !platform.IsSystemHosts(a.cfg.HostsPath) || !platform.HelperOutdated() {
+		return
+	}
+	msg := "Hosts Tray was updated, and its helper for password-free group switching needs updating too. This asks for your password once.\n\n" +
+		"If you skip it, switching groups asks for your password until the helper is updated."
+	if platform.Ask("Update the Hosts Tray helper?", msg, "Update", "Not now") == 0 {
+		a.SetHostsPasswordless(true)
+	}
+}
+
 // offerPasswordless asks once (after a password-prompted write) whether to
 // skip the password from now on.
 func (a *App) offerPasswordless() {
@@ -301,6 +289,11 @@ func (a *App) offerPasswordless() {
 	msg := "Hosts Tray can set itself up to change " + a.cfg.HostsPath +
 		" without asking for your password each time. Other programs running as you could then change it too.\n\n" +
 		"You can change this later from the tray menu."
+	if runtime.GOOS == "darwin" {
+		msg = "Hosts Tray can install a small helper that switches groups in " + a.cfg.HostsPath +
+			" without asking for your password. Editing the file itself still asks. Other programs running as you could switch your groups too.\n\n" +
+			"You can change this later from the tray menu."
+	}
 	switch platform.Ask("Change the hosts file without a password?", msg, "Allow", "Not now", "Don't ask again") {
 	case 0:
 		a.SetHostsPasswordless(true)
