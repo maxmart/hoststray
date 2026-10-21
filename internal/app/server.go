@@ -221,6 +221,31 @@ func (a *App) Handler() http.Handler {
 			writeJSON(w, http.StatusOK, map[string]any{"name": in.Name, "enabled": *in.Enabled, "elevated": res.Elevated})
 		}
 	}))
+	mux.Handle("POST /api/group/entries", a.agentAuthed(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Group   string        `json:"group"`
+			Entries []hosts.Entry `json:"entries"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		res, added, err := a.AddEntries(in.Group, in.Entries)
+		switch {
+		case errors.Is(err, ErrBadEntry):
+			writeErr(w, http.StatusBadRequest, err)
+		case errors.Is(err, ErrDeclined), errors.Is(err, ErrNeedsUser):
+			writeErr(w, http.StatusForbidden, err)
+		case errors.Is(err, platform.ErrCancelled):
+			writeErr(w, http.StatusConflict, err)
+		case err != nil:
+			writeErr(w, http.StatusInternalServerError, err)
+		default:
+			if added == nil {
+				added = []hosts.Entry{}
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"group": in.Group, "added": added, "elevated": res.Elevated})
+		}
+	}))
 	mux.Handle("POST /api/proxy/enabled", a.agentAuthed(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Enabled *bool `json:"enabled"`

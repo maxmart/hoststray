@@ -12,8 +12,10 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -253,6 +255,74 @@ func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
 		return res, res.err
 	}
 	return res, nil
+}
+
+var (
+	ErrDeclined  = errors.New("the user said no")
+	ErrNeedsUser = errors.New("adding entries needs the user to confirm, and Hosts Tray runs without its tray icon")
+	ErrBadEntry  = errors.New("bad entry")
+)
+
+// askUser is platform.Ask; tests answer for the user.
+var askUser = platform.Ask
+
+var hostnameRE = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9])?(\.[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9])?)*$`)
+
+// AddEntries adds entries to a group (creating it if needed) for an agent,
+// after the user agrees in a dialog. Saving may then prompt for elevation as
+// any edit does: the helper only switches groups. It returns the entries that
+// changed something.
+func (a *App) AddEntries(group string, entries []hosts.Entry) (SaveResult, []hosts.Entry, error) {
+	group = strings.TrimSpace(group)
+	if group == "" || strings.ContainsAny(group, "\r\n") || len(entries) == 0 || len(entries) > 50 {
+		return SaveResult{}, nil, fmt.Errorf("%w: need a group name and 1 to 50 entries", ErrBadEntry)
+	}
+	for i, e := range entries {
+		ip, err := netip.ParseAddr(e.IP)
+		if err != nil || !ip.Is4() {
+			return SaveResult{}, nil, fmt.Errorf("%w: %q is not an IPv4 address", ErrBadEntry, e.IP)
+		}
+		if len(e.Host) > 253 || !hostnameRE.MatchString(e.Host) {
+			return SaveResult{}, nil, fmt.Errorf("%w: %q is not a hostname", ErrBadEntry, e.Host)
+		}
+		entries[i] = hosts.Entry{IP: ip.String(), Host: e.Host}
+	}
+	doc, err := a.LoadHosts()
+	if err != nil {
+		return SaveResult{}, nil, err
+	}
+	changed, created := hosts.AddEntries(doc, group, entries)
+	if len(changed) == 0 {
+		return SaveResult{OK: true}, nil, nil
+	}
+	if !a.cfg.Interactive {
+		return SaveResult{}, nil, ErrNeedsUser
+	}
+	var lines []string
+	for _, e := range changed {
+		lines = append(lines, e.IP+"  "+e.Host)
+	}
+	where := "the group \"" + group + "\""
+	if created {
+		where = "a new group \"" + group + "\""
+	}
+	msg := "An agent asks to add these to " + where + " in " + a.cfg.HostsPath + ":\n\n" + strings.Join(lines, "\n")
+	if !a.HostsWritable() {
+		msg += "\n\nSaving the hosts file asks for permission next."
+	}
+	if askUser("Add to the hosts file?", msg, "Add", "Don't add") != 0 {
+		return SaveResult{}, nil, ErrDeclined
+	}
+	// The file may have changed while the dialog was up.
+	if doc, err = a.LoadHosts(); err != nil {
+		return SaveResult{}, nil, err
+	}
+	changed, _ = hosts.AddEntries(doc, group, entries)
+	res := a.SaveHosts(doc)
+	if !res.OK {
+		return res, nil, res.err
+	}
+	return res, changed, nil
 }
 
 // HostsPasswordless reports whether group switches work without a prompt.

@@ -250,3 +250,27 @@ func TestActive(t *testing.T) {
 		}
 	}
 }
+
+func TestAddEntries(t *testing.T) {
+	doc := Parse("127.0.0.1 localhost\n\n#==== dev\n#127.0.0.1 a.test\n#====\n")
+	changed, created := AddEntries(doc, "dev", []Entry{{IP: "127.0.0.1", Host: "b.test"}, {IP: "127.0.0.1", Host: "A.test"}, {IP: "10.0.0.2", Host: "a.test"}})
+	if created || len(changed) != 2 || changed[0].Host != "b.test" || changed[0].Enabled || changed[1].IP != "10.0.0.2" {
+		t.Fatalf("existing group: %v %v", changed, created)
+	}
+	want := "127.0.0.1 localhost\n\n#==== dev\n#10.0.0.2  a.test\n#127.0.0.1  b.test\n#====\n"
+	if got := Serialize(doc); got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	changed, created = AddEntries(doc, "new", []Entry{{IP: "127.0.0.1", Host: "c.test"}})
+	if !created || len(changed) != 1 || !changed[0].Enabled {
+		t.Fatalf("new group: %v %v", changed, created)
+	}
+	want += "\n#==== new\n127.0.0.1  c.test\n#====\n"
+	if got := Serialize(doc); got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	// And the result parses back into the same groups.
+	if g := Groups(Parse(want)); len(g) != 2 || g[1].Name != "new" || !g[1].Enabled {
+		t.Fatalf("reparsed: %+v", g)
+	}
+}

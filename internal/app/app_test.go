@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/maxmart/hoststray/internal/hosts"
+	"github.com/maxmart/hoststray/internal/platform"
 	"github.com/maxmart/hoststray/internal/proxyconf"
 )
 
@@ -334,5 +335,58 @@ func TestTokenFileLifecycle(t *testing.T) {
 	e.app.Shutdown()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("token file left after shutdown:", err)
+	}
+}
+
+func TestAgentAddsEntries(t *testing.T) {
+	e := setup(t)
+	b, _ := os.ReadFile(e.app.TokenPath())
+	tok := map[string]string{"X-Hoststray-Token": string(b)}
+	add := func(group string, entries ...string) (int, []byte) {
+		var list []map[string]string
+		for _, h := range entries {
+			ip, host, _ := strings.Cut(h, " ")
+			list = append(list, map[string]string{"ip": ip, "host": host})
+		}
+		return e.do(t, "POST", "/api/group/entries", map[string]any{"group": group, "entries": list}, tok)
+	}
+
+	for _, bad := range [][]string{{"::1 a.test"}, {"127.0.0.1 a b"}, {"127.0.0.1 -a.test"}, {"127.0.0.1 a.test\n10.0.0.1 evil.test"}} {
+		if code, b := add("Agent", bad...); code != 400 {
+			t.Fatalf("%q: %d %s", bad, code, b)
+		}
+	}
+	if code, _ := add("", "127.0.0.1 a.test"); code != 400 {
+		t.Fatalf("no group: %d", code)
+	}
+	// Without a tray there is nobody to ask.
+	if code, b := add("Agent", "127.0.0.1 a.test"); code != 403 || !strings.Contains(string(b), "confirm") {
+		t.Fatalf("headless: %d %s", code, b)
+	}
+
+	e.app.cfg.Interactive = true
+	var asked string
+	answer := 1
+	askUser = func(title, msg string, buttons ...string) int { asked = msg; return answer }
+	t.Cleanup(func() { askUser = platform.Ask })
+
+	if code, b := add("Agent", "127.0.0.1 a.test"); code != 403 || !strings.Contains(asked, "a new group \"Agent\"") || !strings.Contains(asked, "127.0.0.1  a.test") {
+		t.Fatalf("declined: %d %s\nasked: %s", code, b, asked)
+	}
+	if b, _ := os.ReadFile(e.hosts); strings.Contains(string(b), "a.test") {
+		t.Fatal("written although the user said no")
+	}
+	answer = 0
+	code, b := add("Agent", "127.0.0.1 a.test", "127.0.0.1 b.test")
+	if code != 200 || !strings.Contains(string(b), `"host":"b.test"`) {
+		t.Fatalf("added: %d %s", code, b)
+	}
+	if b, _ := os.ReadFile(e.hosts); !strings.Contains(string(b), "#==== Agent\n127.0.0.1  a.test\n127.0.0.1  b.test\n#====") {
+		t.Fatalf("hosts:\n%s", b)
+	}
+	// Nothing new: no question, nothing written.
+	asked = ""
+	if code, b := add("Agent", "127.0.0.1 a.test"); code != 200 || asked != "" || !strings.Contains(string(b), `"added":[]`) {
+		t.Fatalf("again: %d %s (asked %q)", code, b, asked)
 	}
 }

@@ -306,3 +306,53 @@ func Active(doc *Doc) map[string]string {
 	walk(doc.Nodes)
 	return m
 }
+
+// AddEntries puts entries into the named group, creating the group at the
+// end of the file if there is none. A hostname already in the group gets the
+// new address. New lines follow the group's state (on when every entry is
+// on); in a new group they are on. It returns the entries that changed
+// something, as they now are, and whether the group was created.
+func AddEntries(doc *Doc, group string, entries []Entry) (changed []Entry, created bool) {
+	var g *Node
+	for _, n := range doc.Nodes {
+		if n.T == "group" && n.Name == group {
+			g = n
+			break
+		}
+	}
+	if g == nil {
+		g = &Node{T: "group", Name: group}
+		created = true
+		gap := []*Node{{T: "raw", Raw: strp("")}, g}
+		if last := len(doc.Nodes) - 1; last >= 0 && doc.Nodes[last].T == "raw" && doc.Nodes[last].Raw != nil && *doc.Nodes[last].Raw == "" {
+			// Keep the file's final newline after the new group.
+			doc.Nodes = append(doc.Nodes[:last], append(gap, doc.Nodes[last])...)
+		} else {
+			doc.Nodes = append(doc.Nodes, gap...)
+		}
+	}
+	on := true
+	for _, c := range g.Children {
+		if c.T == "entry" {
+			on = on && c.Enabled
+		}
+	}
+	for _, e := range entries {
+		var found *Node
+		for _, c := range g.Children {
+			if c.T == "entry" && strings.EqualFold(c.Host, e.Host) {
+				found = c
+				break
+			}
+		}
+		switch {
+		case found == nil:
+			g.Children = append(g.Children, &Node{T: "entry", IP: e.IP, Host: e.Host, Enabled: on})
+			changed = append(changed, Entry{IP: e.IP, Host: e.Host, Enabled: on})
+		case found.IP != e.IP:
+			found.IP, found.Raw = e.IP, nil // regenerate this line on serialize
+			changed = append(changed, Entry{IP: e.IP, Host: found.Host, Enabled: found.Enabled})
+		}
+	}
+	return changed, created
+}

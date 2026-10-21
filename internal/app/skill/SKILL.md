@@ -22,8 +22,8 @@ curl -s -H "X-Hoststray-Token: $TOKEN" {{BASE_URL}}/api/status
 ```
 
 `/api/status` returns the groups with their entries and `enabled` state, the
-proxy's state, port, routes and whether its CA is trusted, and whether hosts
-changes need the user's password (`hostsPasswordless`).
+proxy's state, port, routes and whether its CA is trusted, and whether
+switching a group needs the user's password (`hostsPasswordless`).
 
 ## Switch a group on or off
 
@@ -42,6 +42,29 @@ request waits for their answer.
 | 404 | No group by that name. |
 | 409 | The user declined the password prompt. Don't retry on your own. |
 
+## Add hostnames to a group
+
+```sh
+curl -s -H "X-Hoststray-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"group":"DEV","entries":[{"ip":"127.0.0.1","host":"app.example.com"}]}' \
+  {{BASE_URL}}/api/group/entries
+```
+
+Creates the group if there is none. A hostname already in the group gets the
+new address. New entries follow the group's on/off state (on in a new group).
+IPv4 addresses only, up to 50 entries at a time.
+
+The user sees a dialog listing the entries and decides; saving then usually
+asks for their password / UAC as well. Tell them what you're adding and why
+before you call this; the request waits for their answer.
+
+| Status | Meaning |
+| --- | --- |
+| 200 | Done. `added` lists what changed (empty if everything was already there). |
+| 400 | Not a valid IPv4 address or hostname, or no group name. |
+| 403 | The user said no (or Hosts Tray runs without its tray, so nobody can be asked). Don't retry on your own. |
+| 409 | The user declined the password prompt. Don't retry on your own. |
+
 ## Start or stop the proxy
 
 ```sh
@@ -54,9 +77,10 @@ certificate warnings; the user can trust the CA from the tray menu.
 
 ## Limits
 
-Only switch existing groups and the proxy. New hostnames, groups and proxy
-routes are added by the user in the Hosts Tray console (**Open Hosts Tray…** in
-the tray menu); ask them to do it.
+You can switch groups, add hostnames (with the user's consent) and start or
+stop the proxy. Removing entries, renaming groups and changing proxy routes are
+for the user, in the Hosts Tray console (**Open Hosts Tray…** in the tray menu);
+ask them to do it.
 
 If the token file is missing or `/health` doesn't answer, Hosts Tray isn't
 running: ask the user to start it. A 401 means the app restarted since you
