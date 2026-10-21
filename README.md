@@ -34,8 +34,8 @@
 Cookies, CORS, OAuth callbacks and service workers often only behave on the
 real hostname over HTTPS. Getting there by hand means editing an admin-owned
 hosts file, generating and trusting certificates, and running a reverse proxy.
-Hosts Tray does all three from a tray icon: one native binary, under 9 MB on
-macOS, no config files to write.
+Hosts Tray does all three from a tray icon: one small native app, about 10 MB
+to download, no config files to write.
 
 ## Quick start
 
@@ -179,10 +179,12 @@ flowchart LR
 ```
 
 Browsers keep connections open and reuse them without looking the name up
-again, so after a switch they can stay on the old server for minutes. With
-each change the app flushes the DNS cache and drops the connections to where a
-changed hostname used to point, so the next request goes to the new address.
-On Windows this covers IPv4 addresses.
+again, so after a switch they can stay on the old server for minutes. When the
+helper switches a group, or a change goes through the password prompt, the
+DNS cache is flushed and connections to where a changed hostname used to point
+are dropped, so the next request goes to the new address. On Windows this
+covers IPv4 addresses. Edits saved directly, with **Edit hosts without
+password**, only drop the proxy's own connections.
 
 ## HTTPS proxy
 
@@ -193,6 +195,10 @@ On first start the app creates a root CA and offers to trust it for your user
 account (macOS asks for your password; Windows asks you to confirm). Each
 hostname that connects gets its own certificate signed by that CA, so any name
 you point at `127.0.0.1` in the hosts file works immediately.
+
+Another program can listen on `127.0.0.1:443` alongside the proxy and quietly
+take its traffic. The app checks for that while the proxy runs and tells you
+which program it is when it can tell.
 
 Forwarded requests carry `X-Forwarded-Proto: https`, `X-Forwarded-Port`,
 `X-Forwarded-Host` and `X-Forwarded-For`, so your backend can build correct
