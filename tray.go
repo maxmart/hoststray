@@ -22,7 +22,8 @@ type menuState struct {
 	HostsErr     string
 	ProxyOn      bool
 	Trusted      bool
-	Passwordless bool
+	GroupHelper  bool
+	Writable     bool
 	LoginItem    bool
 	Update       string
 }
@@ -77,7 +78,7 @@ func (t *tray) current(recheckTrust bool) *menuState {
 	t.mu.Unlock()
 
 	s := &menuState{ProxyOn: t.app.ProxyRunning(), Trusted: trusted,
-		Passwordless: t.app.HostsPasswordless(), LoginItem: platform.LoginItemEnabled()}
+		GroupHelper: t.app.GroupHelper(), Writable: t.app.HostsWritable(), LoginItem: platform.LoginItemEnabled()}
 	if p := t.app.PendingUpdate(); p != nil {
 		s.Update = p.Version
 	}
@@ -240,8 +241,12 @@ func (t *tray) build(ctx context.Context, s *menuState) {
 		}
 		t.refresh(false)
 	})
-	pw := settings.AddSubMenuItemCheckbox("Change hosts without password", "", s.Passwordless)
-	on(ctx, pw, func() { a.SetHostsPasswordless(!s.Passwordless) })
+	pw := settings.AddSubMenuItemCheckbox("Switch groups without password", "Installs a small helper", s.GroupHelper)
+	on(ctx, pw, func() { a.SetHostsPasswordless(!s.GroupHelper) })
+	if platform.IsSystemHosts(a.Config().HostsPath) {
+		edit := settings.AddSubMenuItemCheckbox("Edit hosts without password", "Any program running as you could edit it too", s.Writable)
+		on(ctx, edit, func() { a.SetHostsWritable(!s.Writable) })
+	}
 	on(ctx, settings.AddSubMenuItem("Install agent skill", "For Claude Code; other agents can read "+a.BaseURL()+"/SKILL.md"), func() {
 		path, err := a.InstallSkill()
 		if err != nil {

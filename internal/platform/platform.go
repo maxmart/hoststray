@@ -81,6 +81,13 @@ func HelperSetGroup(path, name string, enable bool) (handled bool, err error) {
 	return helperSetGroup(path, name, enable)
 }
 
+// HelperReady reports whether the helper is installed and answering for
+// path, so group switches skip the prompt and reset stale connections.
+func HelperReady(path string) bool { return helperReady(path) }
+
+// SetHelper installs or removes the helper. It prompts for elevation itself.
+func SetHelper(enable bool) error { return setHelper(enable) }
+
 // HelperOutdated reports whether the installed helper isn't the one this
 // version of the app ships, so it should be installed again.
 func HelperOutdated() bool { return helperOutdated() }

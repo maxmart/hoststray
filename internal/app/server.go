@@ -80,7 +80,8 @@ func (a *App) Handler() http.Handler {
 	mux.Handle("POST /api/settings", a.authed(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			LoginItem    *bool `json:"loginItem"`
-			Passwordless *bool `json:"passwordless"`
+			Passwordless *bool `json:"passwordless"` // the helper
+			Editable     *bool `json:"editable"`     // write access to the hosts file
 		}
 		if !readJSON(w, r, &in) {
 			return
@@ -91,8 +92,10 @@ func (a *App) Handler() http.Handler {
 			err = platform.SetLoginItem(*in.LoginItem)
 		case in.Passwordless != nil:
 			err = a.SetHostsPasswordless(*in.Passwordless)
+		case in.Editable != nil:
+			err = a.SetHostsWritable(*in.Editable)
 		default:
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need "loginItem" or "passwordless"`})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need "loginItem", "passwordless" or "editable"`})
 			return
 		}
 		a.changed()

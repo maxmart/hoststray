@@ -40,12 +40,8 @@ func elevatedCopy(src, dst string, drop []netip.Addr) error {
 		src, dst, helper.PromptScript(drop))
 }
 
-// setUserWritable installs or removes the helper daemon for the system hosts
-// file, and grants or revokes write access for any other (a test copy).
+// setUserWritable grants or revokes the user's write access to path.
 func setUserWritable(path string, enable bool) error {
-	if IsSystemHosts(path) {
-		return setHelper(enable)
-	}
 	name, err := currentUser()
 	if err != nil {
 		return err

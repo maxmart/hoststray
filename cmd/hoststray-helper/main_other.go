@@ -1,6 +1,6 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
-// The Windows helper still lives in internal/platform (helper_windows.go).
+// There is no helper on other systems.
 package main
 
 func main() {}

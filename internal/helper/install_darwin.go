@@ -37,7 +37,7 @@ func LookupUID(uid string) (uint32, string, error) {
 // Install copies the running binary to InstalledExe and starts it as a
 // daemon serving uid for as long as appExe exists.
 func Install(uid, appExe string) error {
-	n, name, err := LookupUID(uid)
+	n, _, err := LookupUID(uid)
 	if err != nil {
 		return err
 	}
@@ -94,14 +94,13 @@ func Install(uid, appExe string) error {
 	for i := 0; i < 50 && !Running(); i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
-	// The helper replaces the old way of skipping the prompt.
-	return removeGrant(name)
+	return nil
 }
 
 // Uninstall stops and removes the daemon. Run from the daemon itself, it
 // doesn't return: launchd stops it.
 func Uninstall(uid uint32) error {
-	_, name, err := LookupUID(strconv.Itoa(int(uid)))
+	_, _, err := LookupUID(strconv.Itoa(int(uid)))
 	if err != nil {
 		return err
 	}
@@ -111,22 +110,10 @@ func Uninstall(uid uint32) error {
 			return err
 		}
 	}
-	if err := removeGrant(name); err != nil {
-		return err
-	}
 	launchctl("bootout", "system/"+Label)
 	return nil
 }
 
-// removeGrant takes away the write access to the hosts file that earlier
-// versions gave the user instead of installing the helper.
-func removeGrant(name string) error {
-	out, err := exec.Command("/bin/chmod", "-a", "user:"+name+" allow write,append", hostsPath).CombinedOutput()
-	if err != nil && !strings.Contains(string(out), "No ACL present") {
-		return fmt.Errorf("chmod: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
 
 func launchctl(args ...string) error {
 	out, err := exec.Command("/bin/launchctl", args...).CombinedOutput()

@@ -10,7 +10,10 @@
 // connection.
 package helper
 
-import "errors"
+import (
+	"errors"
+	"net/netip"
+)
 
 const (
 	Label = "maxmart.hoststray.helper"
@@ -35,4 +38,16 @@ type Response struct {
 	Proto   int    `json:"proto,omitempty"`
 	NoGroup bool   `json:"noGroup,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// Droppable leaves out addresses that never need resetting: loopback (the
+// proxy drops its own connections) and unspecified.
+func Droppable(addrs []netip.Addr) []netip.Addr {
+	var keep []netip.Addr
+	for _, a := range addrs {
+		if a = a.Unmap(); a.IsValid() && !a.IsLoopback() && !a.IsUnspecified() {
+			keep = append(keep, a)
+		}
+	}
+	return keep
 }

@@ -17,3 +17,6 @@ yarn-error.log
 !.env.example
 *.p8
 *.pfx
+
+# The Windows helper exe the app embeds (go generate ./...)
+/internal/platform/helperbin/*.exe

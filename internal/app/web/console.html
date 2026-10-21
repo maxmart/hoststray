@@ -964,14 +964,17 @@ function settingRow(title, text, control) {
 function renderSettings() {
     const s = status;
     const loginSwitch = toggle(s.loginItem, (e) => updateSetting({ loginItem: e.target.checked }, e.target, "Launch at login"), { big: true, label: "Launch at login" });
-    const pwSwitch = toggle(s.hostsPasswordless, (e) => updateSetting({ passwordless: e.target.checked }, e.target, "Password-free hosts changes"), { big: true, label: "Change hosts without password" });
+    const pwSwitch = toggle(s.groupHelper, (e) => updateSetting({ passwordless: e.target.checked }, e.target, "Password-free group switching"), { big: true, label: "Switch groups without password" });
+    const editSwitch = toggle(s.hostsWritable, (e) => updateSetting({ editable: e.target.checked }, e.target, "Password-free hosts editing"), { big: true, label: "Edit hosts without password" });
     const base = location.origin;
 
     document.getElementById("settingsCard").replaceChildren(
         settingRow("Launch at login", "Start Hosts Tray when you sign in.", loginSwitch),
-        settingRow("Change hosts without password",
+        settingRow("Switch groups without password",
+            "Installs a small helper that switches groups without asking, and makes browsers notice a switch straight away. Other programs running as you could switch your groups too.", pwSwitch),
+        settingRow("Edit hosts without password",
             ["Gives your user account write access to ", h("code", null, s.hostsPath),
-             " so switching groups doesn't ask for your password. Other programs running as you could edit it too."], pwSwitch),
+             ", so saving edits doesn't ask either. Other programs running as you could edit it too."], editSwitch),
         settingRow("HTTPS certificate",
             "Hosts Tray's own certificate authority signs a certificate for each hostname sent through the proxy.",
             s.proxy.caTrusted ? h("span.pill.good", null, "Trusted") : h("button.btn", { onclick: trustCA }, "Trust certificate")),

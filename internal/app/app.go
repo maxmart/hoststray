@@ -110,7 +110,7 @@ func New(cfg Config) (*App, error) {
 	if cfg.Interactive {
 		proxy.OnLoopbackTaken = func(err error) {
 			platform.Alert("HTTPS Proxy", "Another program now answers on port "+strconv.Itoa(cfg.ProxyPort)+
-				", so hostnames pointed at this Mac reach it instead of the proxy.\n\n"+err.Error())
+				", so hostnames pointed at this computer reach it instead of the proxy.\n\n"+err.Error())
 		}
 	}
 	a.loadSettings()
@@ -255,14 +255,42 @@ func (a *App) SetGroup(name string, enable bool) (SaveResult, error) {
 	return res, nil
 }
 
-// HostsPasswordless reports whether hosts writes work without elevation.
+// HostsPasswordless reports whether group switches work without a prompt.
 func (a *App) HostsPasswordless() bool { return platform.HostsPasswordless(a.cfg.HostsPath) }
 
+// GroupHelper reports whether the helper switches groups, which also resets
+// browser connections to where a hostname used to point. A test copy of the
+// hosts file stands in write access for it (see SetHostsPasswordless).
+func (a *App) GroupHelper() bool {
+	if !platform.IsSystemHosts(a.cfg.HostsPath) {
+		return a.HostsWritable()
+	}
+	return platform.HelperReady(a.cfg.HostsPath)
+}
+
+// HostsWritable reports whether the user may write the hosts file, so edits
+// don't prompt either.
+func (a *App) HostsWritable() bool { return platform.Writable(a.cfg.HostsPath) }
+
+// SetHostsPasswordless installs or removes the helper. A test copy of the
+// hosts file has no helper; it gets write access instead.
 func (a *App) SetHostsPasswordless(enable bool) error {
-	err := platform.SetUserWritable(a.cfg.HostsPath, enable)
+	if !platform.IsSystemHosts(a.cfg.HostsPath) {
+		return a.SetHostsWritable(enable)
+	}
+	return a.settingDone(platform.SetHelper(enable), "Could not change the Hosts Tray helper.")
+}
+
+// SetHostsWritable gives the user write access to the hosts file, or takes
+// it away, for those who'd rather not be asked when editing it.
+func (a *App) SetHostsWritable(enable bool) error {
+	return a.settingDone(platform.SetUserWritable(a.cfg.HostsPath, enable), "Could not change hosts file permissions.")
+}
+
+func (a *App) settingDone(err error, failed string) error {
 	a.changed()
 	if err != nil && !errors.Is(err, platform.ErrCancelled) && a.cfg.Interactive {
-		platform.Alert("Hosts Tray", "Could not change hosts file permissions.\n\n"+err.Error())
+		platform.Alert("Hosts Tray", failed+"\n\n"+err.Error())
 	}
 	return err
 }
@@ -273,8 +301,8 @@ func (a *App) OfferHelperUpdate() {
 	if !a.cfg.Interactive || !platform.IsSystemHosts(a.cfg.HostsPath) || !platform.HelperOutdated() {
 		return
 	}
-	msg := "Hosts Tray was updated, and its helper for password-free group switching needs updating too. This asks for your password once.\n\n" +
-		"If you skip it, switching groups asks for your password until the helper is updated."
+	msg := "Hosts Tray was updated, and its helper for password-free group switching needs updating too. This asks for permission once.\n\n" +
+		"If you skip it, switching groups asks each time until the helper is updated."
 	if platform.Ask("Update the Hosts Tray helper?", msg, "Update", "Not now") == 0 {
 		a.SetHostsPasswordless(true)
 	}
@@ -286,15 +314,11 @@ func (a *App) offerPasswordless() {
 	if !a.cfg.Interactive || a.HostsPasswordless() || a.Settings().PasswordlessDeclined {
 		return
 	}
-	msg := "Hosts Tray can set itself up to change " + a.cfg.HostsPath +
-		" without asking for your password each time. Other programs running as you could then change it too.\n\n" +
+	msg := "Hosts Tray can install a small helper that switches groups in " + a.cfg.HostsPath +
+		" without asking each time, and makes browsers notice a switch straight away. Editing the file itself still asks. " +
+		"Other programs running as you could switch your groups too.\n\n" +
 		"You can change this later from the tray menu."
-	if runtime.GOOS == "darwin" {
-		msg = "Hosts Tray can install a small helper that switches groups in " + a.cfg.HostsPath +
-			" without asking for your password. Editing the file itself still asks. Other programs running as you could switch your groups too.\n\n" +
-			"You can change this later from the tray menu."
-	}
-	switch platform.Ask("Change the hosts file without a password?", msg, "Allow", "Not now", "Don't ask again") {
+	switch platform.Ask("Switch groups without a password?", msg, "Allow", "Not now", "Don't ask again") {
 	case 0:
 		a.SetHostsPasswordless(true)
 	case 2:
@@ -431,7 +455,9 @@ func (a *App) TrustCA() error {
 type Status struct {
 	Version           string        `json:"version"`
 	HostsPath         string        `json:"hostsPath"`
-	HostsPasswordless bool          `json:"hostsPasswordless"`
+	HostsPasswordless bool          `json:"hostsPasswordless"` // group switches don't prompt
+	GroupHelper       bool          `json:"groupHelper"`
+	HostsWritable     bool          `json:"hostsWritable"` // edits don't prompt either
 	Groups            []hosts.Group `json:"groups"`
 	Proxy             ProxyStatus   `json:"proxy"`
 	UpdateReady       string        `json:"updateReady,omitempty"`
@@ -461,6 +487,8 @@ func (a *App) Status() (Status, error) {
 		Version:           a.cfg.Version,
 		HostsPath:         a.cfg.HostsPath,
 		HostsPasswordless: a.HostsPasswordless(),
+		GroupHelper:       a.GroupHelper(),
+		HostsWritable:     a.HostsWritable(),
 		Groups:            groups,
 		Proxy: ProxyStatus{Running: a.ProxyRunning(), Port: a.cfg.ProxyPort, CATrusted: a.CA.Trusted(),
 			ConfPath: a.confPath, Routes: routes},

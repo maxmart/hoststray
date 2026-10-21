@@ -21,10 +21,13 @@ go run github.com/tc-hib/go-winres@v0.3.3 simply --icon scripts/icon.png --manif
 	--product-name "Hosts Tray" --file-description "Hosts Tray" --product-version "$VERSION" --file-version "$VERSION" \
 	--original-filename hoststray.exe --arch amd64,arm64
 for arch in amd64 arm64; do
+	# The helper service, which the app embeds (internal/platform/helper_windows.go).
+	CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w" \
+		-o internal/platform/helperbin/hoststray-helper.exe ./cmd/hoststray-helper
 	CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-H windowsgui -s -w -X main.version=$VERSION" \
 		-o "dist/hoststray-$VERSION-windows-$arch.exe" .
 done
-rm -f rsrc_windows_*.syso
+rm -f rsrc_windows_*.syso internal/platform/helperbin/hoststray-helper.exe
 
 # Per-user installers wrapping those exes. The updater keeps using the bare
 # exes; the installers are for first installs.
