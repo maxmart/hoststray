@@ -50,7 +50,7 @@ func setHelper(enable bool) error {
 		return runAsAdmin("Hosts Tray wants to let you switch hosts groups without a password.",
 			bundledHelper(), "--install", uid, executable())
 	}
-	return runAsAdmin("Hosts Tray wants to require a password for hosts file changes again.",
+	return runAsAdmin("Hosts Tray wants to ask for your password when switching groups again.",
 		bundledHelper(), "--uninstall", uid)
 }
 

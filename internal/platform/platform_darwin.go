@@ -50,9 +50,9 @@ func setUserWritable(path string, enable bool) error {
 	if !enable {
 		op = "-a"
 	}
-	prompt := "Hosts Tray wants to let you change the hosts file without a password."
+	prompt := "Hosts Tray wants to let you edit the hosts file without a password."
 	if !enable {
-		prompt = "Hosts Tray wants to require a password for hosts file changes again."
+		prompt = "Hosts Tray wants to ask for your password when editing the hosts file again."
 	}
 	return runAsAdmin(prompt, "/bin/chmod", op, "user:"+name+" allow write,append", path)
 }

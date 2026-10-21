@@ -26,7 +26,7 @@ for arch in arm64 amd64; do
 done
 lipo -create -output "$APP/Contents/MacOS/hoststray" "$OUT/hoststray-arm64" "$OUT/hoststray-amd64"
 rm "$OUT/hoststray-arm64" "$OUT/hoststray-amd64"
-# The root daemon behind "Change hosts without password": its own small binary.
+# The root daemon behind "Switch groups without password": its own small binary.
 for arch in arm64 amd64; do
 	CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$OUT/hoststray-helper-$arch" ./cmd/hoststray-helper
 done
