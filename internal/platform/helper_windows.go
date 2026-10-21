@@ -114,14 +114,26 @@ func helperCommand(args []string) (code int, ok bool) {
 		if helper.Installed() {
 			err = setHelper(false)
 		}
-	case "--close-connections":
-		var addrs []netip.Addr
-		for _, s := range strings.Split(arg(), ",") {
-			if a, err := netip.ParseAddr(s); err == nil {
-				addrs = append(addrs, a)
-			}
+	case "--copy-hosts": // <src> <dst> <addresses to drop connections to>
+		if len(args) < 4 {
+			err = errors.New("usage: --copy-hosts <src> <dst> <addresses>")
+			break
 		}
-		_, err = helper.CloseConnections(helper.Droppable(addrs))
+		err = copyHosts(args[1], args[2], args[3])
+	case "--set-writable": // <path> <user SID> on|off
+		if len(args) < 4 || !helper.ValidSID(args[2]) {
+			err = errors.New("usage: --set-writable <path> <user SID> on|off")
+			break
+		}
+		grant := []string{args[1], "/remove:g", "*" + args[2]}
+		if args[3] == "on" {
+			grant = []string{args[1], "/grant", "*" + args[2] + ":(M)"}
+		}
+		if out, e := hidden("icacls.exe", grant...).CombinedOutput(); e != nil {
+			err = fmt.Errorf("icacls: %v: %s", e, strings.TrimSpace(string(out)))
+		}
+	case "--close-connections":
+		err = closeConnections(arg())
 	default:
 		return 0, false
 	}
@@ -130,4 +142,36 @@ func helperCommand(args []string) (code int, ok bool) {
 		return 1, true
 	}
 	return 0, true
+}
+
+// copyHosts is the UAC fallback for saving the hosts file: it overwrites dst
+// in place (keeping its permissions), flushes the DNS cache and drops the
+// browsers' connections to the addresses that moved.
+func copyHosts(src, dst, addrs string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return err
+	}
+	procDnsFlushResolverCache.Call()
+	return closeConnections(addrs)
+}
+
+var procDnsFlushResolverCache = windows.NewLazySystemDLL("dnsapi.dll").NewProc("DnsFlushResolverCache")
+
+// closeConnections takes a comma-separated address list.
+func closeConnections(list string) error {
+	var addrs []netip.Addr
+	for _, s := range strings.Split(list, ",") {
+		if a, err := netip.ParseAddr(s); err == nil {
+			addrs = append(addrs, a)
+		}
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+	_, err := helper.CloseConnections(helper.Droppable(addrs))
+	return err
 }

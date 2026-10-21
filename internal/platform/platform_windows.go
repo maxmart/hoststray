@@ -68,12 +68,6 @@ const (
 	seeMaskFlagNoUI       = 0x400
 )
 
-// runElevated runs a cmd.exe command line through a UAC prompt and waits for
-// it.
-func runElevated(cmdline string) error {
-	return runElevatedExe(filepath.Join(systemRoot(), "System32", "cmd.exe"), "/c "+cmdline)
-}
-
 // runElevatedExe runs a program through a UAC prompt and waits for it.
 // Declining the prompt returns ErrCancelled; ShellExecuteEx reports that as
 // ERROR_CANCELLED, so it can't be confused with any other failure.
@@ -113,30 +107,34 @@ func runElevatedExe(exe, args string) error {
 	return nil
 }
 
-func cmdQuote(s string) string { return `"` + s + `"` }
-
+// elevatedCopy and setUserWritable run this exe as admin (helperCommand), so
+// the UAC prompt names Hosts Tray rather than cmd.exe.
 func elevatedCopy(src, dst string, drop []netip.Addr) error {
-	cmd := "copy /Y " + cmdQuote(src) + " " + cmdQuote(dst) + " >nul && ipconfig /flushdns >nul"
-	if len(drop) > 0 {
-		var addrs []string
-		for _, a := range drop {
-			addrs = append(addrs, a.String())
-		}
-		cmd += " && " + cmdQuote(executable()) + " --close-connections " + strings.Join(addrs, ",")
+	var addrs []string
+	for _, a := range drop {
+		addrs = append(addrs, a.String())
 	}
-	return runElevated(cmd)
+	return runElevatedExe(executable(), joinArgs("--copy-hosts", src, dst, strings.Join(addrs, ",")))
 }
 
 // setUserWritable grants or revokes the user's write access to path.
 func setUserWritable(path string, enable bool) error {
-	name, err := currentUser()
+	sid, err := currentSID()
 	if err != nil {
 		return err
 	}
+	mode := "off"
 	if enable {
-		return runElevated("icacls " + cmdQuote(path) + " /grant " + cmdQuote(name+":(M)") + " >nul")
+		mode = "on"
 	}
-	return runElevated("icacls " + cmdQuote(path) + " /remove:g " + cmdQuote(name) + " >nul")
+	return runElevatedExe(executable(), joinArgs("--set-writable", path, sid, mode))
+}
+
+func joinArgs(args ...string) string {
+	for i, a := range args {
+		args[i] = windows.EscapeArg(a)
+	}
+	return strings.Join(args, " ")
 }
 
 func trustCA(certPath string) error {
