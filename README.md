@@ -136,6 +136,37 @@ Forwarded requests carry `X-Forwarded-Proto: https`, `X-Forwarded-Port`,
 `X-Forwarded-Host` and `X-Forwarded-For`, so your backend can build correct
 absolute URLs.
 
+### Use the certificates in your own dev server
+
+The certificates are plain PEM files in `_certs/` in the data folder, named
+after the hostname: `local.example.com.crt` and `local.example.com.key`. Since
+your computer already trusts the Hosts Tray CA, a dev server that serves HTTPS
+itself can use them directly, for example Create React App on
+`https://local.example.com:3000`, without going through the proxy.
+
+In `package.json` on Windows:
+
+```json
+"start:https": "set HTTPS=true&&set SSL_CRT_FILE=%APPDATA%\\hoststray\\_certs\\local.example.com.crt&&set SSL_KEY_FILE=%APPDATA%\\hoststray\\_certs\\local.example.com.key&&react-scripts start"
+```
+
+And on macOS:
+
+```json
+"start:https": "HTTPS=true SSL_CRT_FILE=\"$HOME/Library/Application Support/hoststray/_certs/local.example.com.crt\" SSL_KEY_FILE=\"$HOME/Library/Application Support/hoststray/_certs/local.example.com.key\" react-scripts start"
+```
+
+A name's certificate is made the first time the proxy serves it, so open
+`https://local.example.com` once with the proxy on. Certificates last a little
+over two years and are renewed when the proxy serves the name in the last
+month.
+
+> [!TIP]
+> Add a DNS record pointing `local.yourdomain.com` at `127.0.0.1`. Everyone on
+> the team then gets a local name under your real domain, with its cookies,
+> OAuth callbacks and CORS rules, without touching their hosts file, and
+> Hosts Tray gives it a trusted certificate.
+
 ### Routes
 
 Routes live in `proxy.conf` in the app's data folder and are edited in the
