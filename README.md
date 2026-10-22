@@ -21,21 +21,35 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
-    <img src="docs/screenshots/overview-light.png" width="820" alt="The Hosts Tray console: the HTTPS proxy switch and three hosts groups">
-  </picture>
+  <img src="docs/screenshots/tray.gif" width="320" alt="The Hosts Tray menu: turning on the HTTPS proxy and a hosts group, and the tray icon turning green">
 </p>
 
-<!-- TODO: tray menu GIF (tick a group, open https://shop.example.com, green padlock) -->
-
-## Why
+## Why Hosts Tray
 
 Cookies, CORS, OAuth callbacks and service workers often only behave on the
 real hostname over HTTPS. Getting there by hand means editing an admin-owned
-hosts file, generating and trusting certificates, and running a reverse proxy.
-Hosts Tray does all three from a tray icon: one small native app, about 10 MB
-to download, no config files to write.
+hosts file, generating and trusting certificates, running a reverse proxy, and
+then waiting for the browser to notice. Hosts Tray does it from a tray icon:
+one small native app, about 10 MB to download, no config files to write.
+
+<table>
+  <tr>
+    <td width="34%">🔀 <b>Hosts and HTTPS in one switch</b></td>
+    <td>Tick a group and its names point at your machine. Turn on the proxy and they answer over HTTPS with a trusted certificate, made on the fly for each name. No hosts editor, <code>mkcert</code> and reverse proxy to wire together.</td>
+  </tr>
+  <tr>
+    <td>🔁 <b>Browsers follow the switch</b></td>
+    <td>Browsers reuse open connections and can stay on the old server for minutes. Hosts Tray flushes the DNS cache and drops those connections, so the next request reaches the new server within seconds.</td>
+  </tr>
+  <tr>
+    <td>🤖 <b>Coding agents can drive it</b></td>
+    <td>A one-click skill for Claude Code and other agents. They switch groups and the proxy, and ask before adding hostnames: nothing changes unless you click <b>Add</b>.</td>
+  </tr>
+  <tr>
+    <td>🔑 <b>No password prompts, safely</b></td>
+    <td>An optional helper switches groups without a password, and can do nothing else. See <a href="#security">Security</a>.</td>
+  </tr>
+</table>
 
 ## Quick start
 
@@ -69,13 +83,20 @@ table decides which local port gets the request.
 
 - 🗂️ **Hosts groups.** Sections of your hosts file, switched on and off from the tray menu.
 - 🔒 **HTTPS proxy.** A certificate per hostname on the fly, websockets included.
+- 🔁 **Browsers follow the switch.** DNS cache flushed and stale connections dropped on every change.
+- 🤖 **Agent skill.** Claude Code and other coding agents switch groups and the proxy, and ask before adding hostnames.
 - 🧭 **Routes.** Send paths and websocket upgrades to different ports; changes apply on save.
-- 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
 - 🔑 **No password prompts, if you want.** Opt-in settings for switching groups and for editing.
-- 🔁 **Browsers follow the switch.** Open connections to the old address are dropped, so the next request goes to the new one.
+- 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
 - 📦 **Move to another computer.** Export and import groups and routes as one text file.
-- 🤖 **Agent skill.** Claude Code and other coding agents can switch groups and the proxy, and ask you before adding hostnames.
 - 🔄 **Auto-update** from GitHub Releases, checksum-verified.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
+    <img src="docs/screenshots/overview-light.png" width="820" alt="The Hosts Tray console: the HTTPS proxy switch and three hosts groups">
+  </picture>
+</p>
 
 <p align="center">
   <picture>
@@ -95,6 +116,7 @@ table decides which local port gets the request.
 | Toggle hosts groups from a menu | ✅ | | | ✅ |
 | Trusted HTTPS certificates | | ✅ one command per name | ✅ `tls internal` | ✅ automatic per name |
 | Reverse proxy and websockets | | | ✅ | ✅ |
+| Browsers switch right away | | | | ✅ |
 | No config file to write | ✅ | ✅ | | ✅ |
 | Coding agents can drive it | | | | ✅ |
 
@@ -161,22 +183,9 @@ prompts away. Each asks one last time when you turn it on.
   hosts file, so editing it in the console, importing and agent additions
   stop asking as well.
 
-The helper can do one thing only: switch a group that's already in the hosts
-file on or off. It never takes new entries, so pointing a name somewhere new
-always goes through you. It only accepts connections from your user account,
-and the app checks that it's talking to the real helper before trusting it.
-The trade-off: other programs running as you could switch your groups too,
-and with **Edit hosts without password** they could edit the file. The helper
-removes itself if the app is deleted, and the app offers to update it after
-an app update.
+What each one lets other programs do is under [Security](#security).
 
-```mermaid
-flowchart LR
-    T["Tray, console, agent"] --> A["Hosts Tray<br/>(runs as you)"]
-    A -- "switch group" --> H["Helper<br/>(admin)"]
-    H --> F["hosts file"]
-    A -- "other edits: password prompt,<br/>or directly if editing is password-free" --> F
-```
+### Stale connections
 
 Browsers keep connections open and reuse them without looking the name up
 again, so after a switch they can stay on the old server for minutes. When the
@@ -264,13 +273,76 @@ call these endpoints with it:
 | `POST /api/group/entries` `{"group","entries":[{"ip","host"}]}` | Ask to add hostnames to a group (created if needed) |
 | `POST /api/proxy/enabled` `{"enabled"}` | Start or stop the proxy |
 
-The agent token is new on each launch and only works for those four. Adding
-hostnames shows you a dialog listing them, and nothing changes unless you
-click **Add**. The console uses a separate token that never touches disk, so
-agents can't remove or rename anything, change routes, import, or trust the
-CA. Pointing a real domain at localhost behind a trusted CA lets whoever
-controls it intercept that site's traffic, so those stay with you. The server only answers on
-`127.0.0.1` and rejects requests from web pages, so websites can't reach it.
+Adding hostnames shows you a dialog listing them, and nothing changes unless
+you click **Add**. Everything else (removing or renaming, routes, import,
+trusting the CA) stays with you in the console; see [Security](#security).
+
+## Security
+
+Hosts Tray changes a system file and runs a certificate authority your
+computer trusts, so it's built to hand out as little power as possible.
+Pointing a real domain at your machine behind a trusted CA would let whoever
+did it read that site's traffic, so adding or changing where a name points
+always needs you.
+
+### The helper
+
+Switching groups without a password needs something running as admin. The app
+itself never does; a separate helper does that one job:
+
+```mermaid
+flowchart LR
+    T["Tray, console, agent"] --> A["Hosts Tray<br/>(runs as you)"]
+    A -- "switch group X on/off" --> H["Helper<br/>(admin)"]
+    H --> F["hosts file"]
+    A -- "any other change:<br/>password prompt, or directly<br/>with Edit hosts without password" --> F
+```
+
+- **It can only switch existing groups on or off.** It understands two
+  requests: its version, and "turn group X on or off". It reads the hosts file
+  itself and comments or uncomments the lines inside that group. It never takes
+  file content or new entries, so it can't point a name somewhere new.
+- **Only your user account can reach it.** On macOS it listens on a socket in
+  `/var/run` owned by your user and checks the caller's user ID on every
+  connection. On Windows it's a named pipe whose permissions admit only your
+  account, and connections from other machines are refused.
+- **The app checks it's the real helper.** Before sending anything, the app
+  verifies that the other end runs as root (macOS) or is the Hosts Tray helper
+  service itself (Windows), so another program can't pose as it.
+- **It stays small.** A few connections at a time, size-limited requests with
+  timeouts, and the hosts file is replaced in one atomic step.
+- **It cleans up after itself.** It serves one user and one app. If the app is
+  deleted, the helper removes itself; the Windows uninstaller removes it
+  straight away. After an app update, the app offers to update the helper and
+  uses the password prompt until you do.
+
+The trade-off: any program running as you can switch your existing groups
+through the helper, just as it could click the tray menu.
+
+**Edit hosts without password** goes further: it gives your account write
+access to the hosts file, so any program running as you can edit it. Leave it
+off unless you want no prompts at all.
+
+### Password prompts
+
+Prompts come from the system and name Hosts Tray: the macOS admin dialog with
+the Hosts Tray icon, or a Windows UAC prompt for `hoststray.exe` itself. The
+app runs as admin only for that one step.
+
+### The local API and console
+
+The API and console only answer on `127.0.0.1` and reject requests from web
+pages, so websites can't reach them. The agent token is new on each launch and
+only works for the four endpoints above. The console uses a separate token
+that never touches disk, so agents can't remove or rename anything, change
+routes, import, or trust the CA.
+
+### The certificate authority
+
+The CA is created on your computer, its private key stays in the data folder,
+and it's trusted for your user account only. Each hostname gets its own
+certificate from it. Uninstalling on Windows with *remove settings* removes
+the trust.
 
 ## Updates
 
