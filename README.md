@@ -11,8 +11,6 @@
 
 <p align="center">
   <a href="https://github.com/maxmart/hoststray/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/maxmart/hoststray?color=1f9d55"></a>
-  <img alt="macOS and Windows" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-555">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/maxmart/hoststray?color=555"></a>
 </p>
 
 <p align="center">
@@ -24,32 +22,29 @@
   <img src="docs/screenshots/tray.gif" width="320" alt="The Hosts Tray menu: turning on the HTTPS proxy and a hosts group, and the tray icon turning green">
 </p>
 
+## Features
+
+- 🗂️ **Hosts groups.** Sections of your hosts file, switched on and off from the tray menu.
+- 🔒 **HTTPS proxy.** A certificate per hostname on the fly, websockets included.
+- 🔁 **Browsers follow the switch.** DNS cache flushed and stale connections dropped on every change.
+- 🤖 **Agent skill.** Claude Code and other coding agents switch groups and the proxy, and ask before adding hostnames.
+- 🧭 **Routes.** Send paths and websocket upgrades to different ports; changes apply on save.
+- 🔑 **No password prompts, if you want.** Opt-in settings for switching groups and for editing.
+- 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
+- 📦 **Move to another computer.** Export and import groups and routes as one text file.
+- 🔄 **Auto-update** from GitHub Releases, checksum-verified.
+
 ## Why Hosts Tray
 
-Cookies, CORS, OAuth callbacks and service workers often only behave on the
-real hostname over HTTPS. Getting there by hand means editing an admin-owned
-hosts file, generating and trusting certificates, running a reverse proxy, and
-then waiting for the browser to notice. Hosts Tray does it from a tray icon:
-one small native app, about 10 MB to download, no config files to write.
+If you run a local dev web server but need to use real hostnames for debugging, you need to switch hosts. But you also want traffic over HTTPS, even locally. Hosts Tray does both, and makes it easy to switch right from your tray. SSL certificates are generated per domain on-the-fly. 
 
-<table>
-  <tr>
-    <td width="34%">🔀 <b>Hosts and HTTPS in one switch</b></td>
-    <td>Tick a group and its names point at your machine. Turn on the proxy and they answer over HTTPS with a trusted certificate, made on the fly for each name. No hosts editor, <code>mkcert</code> and reverse proxy to wire together.</td>
-  </tr>
-  <tr>
-    <td>🔁 <b>Browsers follow the switch</b></td>
-    <td>Browsers reuse open connections and can stay on the old server for minutes. Hosts Tray flushes the DNS cache and drops those connections, so the next request reaches the new server within seconds.</td>
-  </tr>
-  <tr>
-    <td>🤖 <b>Coding agents can drive it</b></td>
-    <td>A one-click skill for Claude Code and other agents. They switch groups and the proxy, and ask before adding hostnames: nothing changes unless you click <b>Add</b>.</td>
-  </tr>
-  <tr>
-    <td>🔑 <b>No password prompts, safely</b></td>
-    <td>An optional helper switches groups without a password, and can do nothing else. See <a href="#security">Security</a>.</td>
-  </tr>
-</table>
+You can configure host entries in groups and toggle each group. You can also configure routing for requests, both HTTP and WebSockets.
+
+One irritation with other tools is that Chrome and other browsers are a bit sticky with the hosts, so even if you edit your hosts file they don't refresh. The reason is that browsers keep connections alive in a pool in the background. Hosts Tray solves this both in Windows and macOS by killing those connections and forcing the browser to reconnect and using the new hosts. 
+
+Also, Hosts Tray exposes a simple API locally that coding agents (or you) can use to toggle groups and the proxy programmatically. The API also exposes its own SKILL file for easy agent exploration. 
+
+One small native app written in Go, about 10 MB to download, no config files to write.
 
 ## Quick start
 
@@ -66,30 +61,6 @@ one small native app, about 10 MB to download, no config files to write.
    under **Proxy routes**.
 
 ## How it works
-
-```mermaid
-flowchart LR
-    B["Browser<br/>https://shop.example.com"] -- "hosts file:<br/>127.0.0.1" --> P["Hosts Tray :443<br/>certificate from a local CA"]
-    P -- "/" --> A["localhost:3000"]
-    P -- "/api" --> C["localhost:8080"]
-    P -- "wss /socket" --> D["localhost:3001"]
-```
-
-The hosts file points the name at your machine, the proxy answers with a
-certificate for that name signed by a CA your computer trusts, and the route
-table decides which local port gets the request.
-
-## Features
-
-- 🗂️ **Hosts groups.** Sections of your hosts file, switched on and off from the tray menu.
-- 🔒 **HTTPS proxy.** A certificate per hostname on the fly, websockets included.
-- 🔁 **Browsers follow the switch.** DNS cache flushed and stale connections dropped on every change.
-- 🤖 **Agent skill.** Claude Code and other coding agents switch groups and the proxy, and ask before adding hostnames.
-- 🧭 **Routes.** Send paths and websocket upgrades to different ports; changes apply on save.
-- 🔑 **No password prompts, if you want.** Opt-in settings for switching groups and for editing.
-- 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
-- 📦 **Move to another computer.** Export and import groups and routes as one text file.
-- 🔄 **Auto-update** from GitHub Releases, checksum-verified.
 
 <p align="center">
   <picture>
@@ -111,14 +82,22 @@ table decides which local port gets the request.
 
 ## Compared to
 
-| | SwitchHosts | mkcert | Caddy by hand | **Hosts Tray** |
-| --- | :---: | :---: | :---: | :---: |
-| Toggle hosts groups from a menu | ✅ | | | ✅ |
-| Trusted HTTPS certificates | | ✅ one command per name | ✅ `tls internal` | ✅ automatic per name |
-| Reverse proxy and websockets | | | ✅ | ✅ |
-| Browsers switch right away | | | | ✅ |
-| No config file to write | ✅ | ✅ | | ✅ |
-| Coding agents can drive it | | | | ✅ |
+| | SwitchHosts, Gas Mask | portless | mkcert + Caddy | whistle, Fiddler | **Hosts Tray** |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| Coding agents can drive it | | ✅ | | | ✅ |
+| Browsers switch right away | | | | ✅ | ✅ |
+| Switch hosts groups from a menu | ✅ | | | | ✅ |
+| Your real hostnames, like `app.example.com` | ✅ | `app.localhost` style | ✅ | ✅ | ✅ |
+| Trusted HTTPS certificates | | ✅ | ✅ one command per name | ✅ | ✅ automatic per name |
+| Reverse proxy and websockets | | ✅ | ✅ | ✅ | ✅ |
+| Path routes to different ports | | | ✅ | ✅ | ✅ |
+| No proxy settings in browser or system | ✅ | ✅ | ✅ | | ✅ |
+| No config files or CLI | ✅ | | | ✅ | ✅ |
+
+SwitchHosts and Gas Mask (macOS) switch hosts files; PowerToys has a hosts
+editor on Windows. portless gives each dev server a stable `.localhost` name
+with HTTPS. whistle, Fiddler, Charles and Proxyman are debugging proxies: they
+can remap hosts and decrypt HTTPS, but traffic has to be sent through them.
 
 ## Install
 
@@ -139,63 +118,7 @@ certificates; yes also stops Windows trusting the Hosts Tray CA and removes
 password-free hosts editing. The password-free helper is always removed
 (one UAC prompt, if it's installed). Hosts file entries are always kept.
 
-## Hosts file groups
-
-Groups are delimited by `#====` markers. An opening marker carries the name,
-an empty one closes the group. Everything else in the file is left untouched.
-
-```
-#==== Staging
-127.0.0.1  app.example.com
-127.0.0.1  api.example.com
-#====
-
-#==== Customer demo
-#127.0.0.1  demo.example.com
-#====
-```
-
-Each group appears as a checkbox in the tray menu. Unchecking comments out
-every entry in the group; checking uncomments them. A group counts as enabled
-only when all of its entries are. Only IPv4 entries are managed; comments,
-blank lines and anything else are preserved byte for byte.
-
-**Open Hosts Tray…** in the tray menu opens the console in your browser;
-**Edit hosts…** and **Edit proxy routes…** open it at those sections. It's
-served by the app on `127.0.0.1` and only works through the links from the
-tray menu.
-
-### Passwords
-
-The hosts file belongs to the system, so changing it needs admin rights. By
-default every change asks for your password (macOS) or a UAC confirmation
-(Windows). On macOS that's the system's own admin dialog, which asks for the
-password (macOS doesn't offer Touch ID for running things as root).
-
-Two settings, in the tray menu's **Settings** and in the console, take the
-prompts away. Each asks one last time when you turn it on.
-
-- **Switch groups without password** installs a small helper: a launchd
-  daemon on macOS, a service on Windows. Switching groups on or off, from the
-  tray, the console or an agent, then goes through it without a prompt. The
-  app offers this after the first prompted switch.
-- **Edit hosts without password** gives your user account write access to the
-  hosts file, so editing it in the console, importing and agent additions
-  stop asking as well.
-
-What each one lets other programs do is under [Security](#security).
-
-### Stale connections
-
-Browsers keep connections open and reuse them without looking the name up
-again, so after a switch they can stay on the old server for minutes. When the
-helper switches a group, or a change goes through the password prompt, the
-DNS cache is flushed and connections to where a changed hostname used to point
-are dropped, so the next request goes to the new address. On Windows this
-covers IPv4 addresses. Edits saved directly, with **Edit hosts without
-password**, only drop the proxy's own connections.
-
-## HTTPS proxy
+## HTTPS proxy and certificates
 
 Turn on **HTTPS proxy on :443** in the tray menu. The icon turns green while
 the proxy runs, and it stays on across restarts until you turn it off.
@@ -285,6 +208,26 @@ Pointing a real domain at your machine behind a trusted CA would let whoever
 did it read that site's traffic, so adding or changing where a name points
 always needs you.
 
+### Passwords
+
+The hosts file belongs to the system, so changing it needs admin rights. By
+default every change asks for your password (macOS) or a UAC confirmation
+(Windows). The prompts come from the system and name Hosts Tray: the macOS
+admin dialog with the Hosts Tray icon (macOS doesn't offer Touch ID for running
+things as root), or a UAC prompt for `hoststray.exe` itself. The app runs as
+admin only for that one step.
+
+Two settings, in the tray menu's **Settings** and in the console, take the
+prompts away:
+
+- **Switch groups without password** installs a small helper: a launchd
+  daemon on macOS, a service on Windows. Switching groups on or off, from the
+  tray, the console or an agent, then goes through it without a prompt. The
+  app offers this after the first prompted switch.
+- **Edit hosts without password** gives your user account write access to the
+  hosts file, so editing it in the console, importing and agent additions
+  stop asking as well.
+
 ### The helper
 
 Switching groups without a password needs something running as admin. The app
@@ -322,12 +265,6 @@ through the helper, just as it could click the tray menu.
 **Edit hosts without password** goes further: it gives your account write
 access to the hosts file, so any program running as you can edit it. Leave it
 off unless you want no prompts at all.
-
-### Password prompts
-
-Prompts come from the system and name Hosts Tray: the macOS admin dialog with
-the Hosts Tray icon, or a Windows UAC prompt for `hoststray.exe` itself. The
-app runs as admin only for that one step.
 
 ### The local API and console
 
@@ -433,6 +370,11 @@ The Windows executables and installers are not code-signed yet, so
 SmartScreen warns on first run.
 
 </details>
+
+## Credits
+I started this project by adapting from [mlebkowski/nassau-https-proxy](https://github.com/mlebkowski/nassau-https-proxy) and writing an Electron wrapper around it. Since Electron bundles Chromium the binaries were huge and Claude rewrote all of it in Go. 
+
+The idea for killing connections to force Chrome to refresh DNS was from [tinycedar/lily](https://github.com/tinycedar/lily). 
 
 ## License
 
