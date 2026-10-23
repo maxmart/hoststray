@@ -5,8 +5,9 @@
 <h1 align="center">Hosts Tray</h1>
 
 <p align="center">
-  <b>Easily switch hosts and SSL proxy from your tray.</b><br>
-  Define groups of entries in your hosts file, and run a local HTTPS proxy with self-signed certificates that generate on-the-fly.
+  <b>Real hostnames with trusted HTTPS on your local dev server, switched from your tray.</b><br>
+  Point <code>app.example.com</code> at <code>localhost:3000</code> and test cookies, OAuth callbacks and CORS exactly as in production.<br>
+  No certs to generate, no proxy config, no browser warnings.
 </p>
 
 <p align="center">
@@ -22,29 +23,21 @@
   <img src="docs/screenshots/tray.gif" width="320" alt="The Hosts Tray menu: turning on the HTTPS proxy and a hosts group, and the tray icon turning green">
 </p>
 
-## Features
-
-- 🗂️ **Hosts groups.** Sections of your hosts file, switched on and off from the tray menu.
-- 🔒 **HTTPS proxy.** A certificate per hostname on the fly, websockets included.
-- 🔁 **Browsers follow the switch.** DNS cache flushed and stale connections dropped on every change.
-- 🤖 **Agent skill.** Claude Code and other coding agents switch groups and the proxy, and ask before adding hostnames.
-- 🧭 **Routes.** Send paths and websocket upgrades to different ports; changes apply on save.
-- 🔑 **No password prompts, if you want.** Opt-in settings for switching groups and for editing.
-- 🖥️ **Console.** One local web page for the proxy, groups, routes and settings.
-- 📦 **Move to another computer.** Export and import groups and routes as one text file.
-- 🔄 **Auto-update** from GitHub Releases, checksum-verified.
-
 ## Why Hosts Tray
 
-If you run a local dev web server but need to use real hostnames for debugging, you need to switch hosts. But you also want traffic over HTTPS, even locally. Hosts Tray does both, and makes it easy to switch right from your tray. SSL certificates are generated per domain on-the-fly. 
+- 🔒 **Trusted HTTPS for every hostname, automatically.** A local CA your machine
+  trusts issues a certificate the first time each name is requested. Websockets included.
+- 🔁 **Browsers actually follow the switch.** Browsers keep pooled connections to the
+  old address, so hosts edits often don't take effect for minutes. Hosts Tray flushes
+  DNS and drops those connections on every change.
+- 🗂️ **Hosts groups in one click.** Mark sections of your hosts file and switch each
+  on or off from the tray menu.
+- 🤖 **Coding agents can drive it.** Claude Code and others switch groups and the proxy
+  through a [local API](#agents). Adding hostnames always needs your click.
 
-You can configure host entries in groups and toggle each group. You can also configure routing for requests, both HTTP and WebSockets.
-
-One irritation with other tools is that Chrome and other browsers are a bit sticky with the hosts, so even if you edit your hosts file they don't refresh. The reason is that browsers keep connections alive in a pool in the background. Hosts Tray solves this both in Windows and macOS by killing those connections and forcing the browser to reconnect and using the new hosts. 
-
-Also, Hosts Tray exposes a simple API locally that coding agents (or you) can use to toggle groups and the proxy programmatically. The API also exposes its own SKILL file for easy agent exploration. 
-
-One small native app written in Go, about 10 MB to download, no config files to write.
+Also: path and websocket [routes](#routes), opt-in [password-free switching](#passwords),
+a local web console, [export/import](#moving-to-another-computer), and checksum-verified
+auto-updates. One ~10 MB native Go app, no config files to write.
 
 ## Quick start
 
@@ -84,15 +77,15 @@ One small native app written in Go, about 10 MB to download, no config files to 
 
 | | SwitchHosts, Gas Mask | portless | mkcert + Caddy | whistle, Fiddler | **Hosts Tray** |
 | --- | :---: | :---: | :---: | :---: | :---: |
-| Coding agents can drive it | | ✅ | | | ✅ |
-| Browsers switch right away | | | | ✅ | ✅ |
-| Switch hosts groups from a menu | ✅ | | | | ✅ |
 | Your real hostnames, like `app.example.com` | ✅ | `app.localhost` style | ✅ | ✅ | ✅ |
 | Trusted HTTPS certificates | | ✅ | ✅ one command per name | ✅ | ✅ automatic per name |
+| Browsers switch right away | | | | ✅ | ✅ |
+| Switch hosts groups from a menu | ✅ | | | | ✅ |
 | Reverse proxy and websockets | | ✅ | ✅ | ✅ | ✅ |
 | Path routes to different ports | | | ✅ | ✅ | ✅ |
 | No proxy settings in browser or system | ✅ | ✅ | ✅ | | ✅ |
 | No config files or CLI | ✅ | | | ✅ | ✅ |
+| Coding agents can drive it | | ✅ | | | ✅ |
 
 SwitchHosts and Gas Mask (macOS) switch hosts files; PowerToys has a hosts
 editor on Windows. portless gives each dev server a stable `.localhost` name
@@ -108,7 +101,8 @@ Download from the [latest release](https://github.com/maxmart/hoststray/releases
 - **Windows**: `Hosts-Tray-<version>-windows-amd64-setup.exe` (or `arm64`)
   installs for your user into `%LOCALAPPDATA%\Programs\Hosts Tray`, without
   admin rights, with a Start menu entry and an uninstaller. The bare
-  `hoststray-<version>-windows-amd64.exe` also runs from anywhere.
+  `hoststray-<version>-windows-amd64.exe` also runs from anywhere. The Windows
+  builds aren't code-signed yet, so SmartScreen asks once: *More info → Run anyway*.
 
 The app lives in the menu bar (macOS) or the notification area (Windows);
 there's no window or Dock icon.
@@ -346,61 +340,7 @@ Settings, `proxy.conf`, the CA (`_certs/`) and `hoststray.log` live in
 
 </details>
 
-<details>
-<summary><b>Development</b></summary>
-
-Needs Go 1.27 or newer; on macOS, Xcode command line tools (the tray uses cgo).
-
-```sh
-go run .                         # run from source
-go test ./...                    # unit and integration tests
-```
-
-On Windows, run `go generate . ./internal/platform` before building: the first
-links in the icon and manifest (without it, dialogs fall back to plain Yes/No
-boxes), the second builds the helper service the app carries inside it.
-
-To try things without touching the real hosts file, copy it somewhere and run
-with `HOSTS_PATH` pointing at the copy.
-
-The hosts and `proxy.conf` parsers were ported from the original JavaScript
-version; `internal/*/testdata/js_golden.json` holds that version's output for 800 inputs
-each, and the tests check the Go port produces exactly the same.
-
-Two opt-in macOS test suites need someone at the screen:
-
-- `HOSTSTRAY_UI_TESTS=1 go test ./internal/platform/` clicks real dialogs.
-- `HOSTSTRAY_ADMIN_TESTS=1 go test -run Admin ./internal/platform/` runs the
-  password prompts (elevated write, password-free on/off, CA trust) against a
-  throwaway file and CA. You type your password five times.
-
-</details>
-
-<details>
-<summary><b>Releasing</b></summary>
-
-```sh
-VERSION=0.11.0 ./scripts/build-release.sh   # build everything into dist/
-VERSION=0.11.0 ./scripts/release.sh         # publish dist/ as a GitHub release (gh CLI)
-```
-
-`build-release.sh` produces `Hosts-Tray-<v>-mac.zip` and `.pkg` (universal,
-signed and notarized, via `scripts/build-mac.sh`),
-`hoststray-<v>-windows-{amd64,arm64}.exe` with icon, manifest and the helper service, their
-installers `Hosts-Tray-<v>-windows-{amd64,arm64}-setup.exe` (needs
-`brew install makensis`; skipped without it, see `scripts/windows/installer.nsi`),
-and the `SHA256SUMS` the updater requires.
-
-macOS signing needs, in your keychain, a **Developer ID Application**
-certificate (and **Developer ID Installer** for the `.pkg`), plus an
-app-specific password for notarization. Copy `.env.example` to `.env` and fill
-it in. Without it, `build-mac.sh` builds an ad-hoc signed app for local use;
-`NOTARIZE=0` signs without notarizing, for quick test builds.
-
-The Windows executables and installers are not code-signed yet, so
-SmartScreen warns on first run.
-
-</details>
+Building from source or releasing: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits
 I started this project by adapting from [mlebkowski/nassau-https-proxy](https://github.com/mlebkowski/nassau-https-proxy) and writing an Electron wrapper around it. Since Electron bundles Chromium the binaries were huge and Claude rewrote all of it in Go. 
