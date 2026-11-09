@@ -347,6 +347,8 @@ I started this project by adapting from [mlebkowski/nassau-https-proxy](https://
 
 The idea for killing connections to force Chrome to refresh DNS was from [tinycedar/lily](https://github.com/tinycedar/lily). 
 
+The hosts group syntax (`#==== Group` … `#====`) comes from [HostAdmin](https://github.com/tg123/chrome-hostadmin), a Chrome and Firefox extension.
+
 ## License
 
 [MIT](LICENSE)
